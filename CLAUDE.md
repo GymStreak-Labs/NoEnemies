@@ -16,7 +16,7 @@ A personal peace and conflict resolution journey app inspired by Vinland Saga's 
 - **Navigation:** go_router (with auth-aware redirect guard)
 - **Storage:** Cloud Firestore for all user-scoped data (profile, check-ins, journal). SharedPreferences for device-local flags only (onboarding complete, intro cinematic seen, last-seen title index, legacy migration guard).
 - **Auth:** Firebase Auth — Apple / Google / Email+Password (Phase 1A complete)
-- **AI:** Mock AiService (real Claude/Gemini mentor is Phase 1C — this phase 1B only moves the data layer)
+- **AI:** Gemini 2.5 Flash via `firebase_ai` (Google AI / Gemini Developer API). Falls back to a hand-written Dart string library when the model is unreachable. See "AI Mentor (Phase 1C)" below.
 - **Subscriptions:** UI-only paywall (RevenueCat in later phase)
 - **Typography:** Google Fonts (Inter)
 - **Animations:** flutter_animate
@@ -144,12 +144,14 @@ NoEnemies/
 │   │   ├── onboarding_data.dart   # Intermediate data model for onboarding flow
 │   │   ├── check_in.dart          # Morning/evening check-in model
 │   │   ├── current_emotion.dart   # 3-bucket emotion (joyful/calm/troubled) driving the character aura
-│   │   └── journal_entry.dart     # Journal entry model
+│   │   ├── journal_entry.dart     # Journal entry model
+│   │   └── ai_context.dart        # Rolling AI memory summary (Phase 1C)
 │   ├── services/
 │   │   ├── storage_service.dart         # SharedPreferences — device-local flags only post-1B
 │   │   ├── auth_service.dart            # Firebase Auth wrapper (Apple/Google/Email)
-│   │   ├── firestore_repository.dart    # Firestore data layer (profile, check-ins, journal)
-│   │   └── ai_service.dart              # Mock AI prompts by conflict type (replaced in Phase 1C)
+│   │   ├── firestore_repository.dart    # Firestore data layer (profile, check-ins, journal, ai/context)
+│   │   ├── ai_service.dart              # Dart string fallback library (formerly "mock AI")
+│   │   └── ai_mentor_service.dart       # Real Gemini 2.5 Flash mentor via firebase_ai (Phase 1C)
 │   ├── providers/
 │   │   ├── user_provider.dart     # User state, check-ins, journal
 │   │   └── journey_provider.dart  # Peace missions, AI prompts
@@ -259,6 +261,39 @@ The four stage portraits (`warrior_portrait.png` → `peacemaker_portrait.png`) 
 
 Chosen over generating 12 separate face-layer PNGs (4 stages × 3 emotions) because (a) pixel-accurate face alignment across hand-painted portraits is fragile, and (b) the aura/breath signal reads more clearly at the portrait sizes we composite at. Leaves the door open to swap in face-layer PNGs later by replacing the `EmotionAura.child` contents with a `Stack` of base + emotion face — no callsite changes needed.
 
+## AI Mentor (Phase 1C)
+
+The mentor is a small layer over [`firebase_ai`](https://pub.dev/packages/firebase_ai) using Google's Gemini Developer API (NOT Vertex — see gotchas). Entry point: [`lib/services/ai_mentor_service.dart`](lib/services/ai_mentor_service.dart). `init()` is called once in `main.dart` after `Firebase.initializeApp`.
+
+**Model config**
+- `gemini-2.5-flash` (NOT Pro, NOT flash-lite — Flash is the right trade-off for latency + cost on short mentor replies)
+- `temperature: 0.8`, `maxOutputTokens: 200`
+- `FirebaseAI.googleAI()` — uses the consumer Gemini endpoint, no Vertex project config required
+- App Check wired client-side on init (debug providers in dev, DeviceCheck/Play Integrity in release). Enforcement is NOT turned on in the Firebase console yet — that's a launch-time task.
+
+**Voice**
+The system prompt (single `Content.text` block passed as `systemInstruction`) tells the mentor:
+- 1–3 sentences max, no markdown, no emojis, no lists
+- Speak to the user as "you", never use their name
+- Never diagnose, never prescribe treatment
+- If the user seems in crisis, gently point at professional help in one sentence
+
+**What the mentor can do**
+1. `morningPrompt` — 1–2 sentence prompt grounded in current mood + streak + intention + rolling memory
+2. `eveningQuestion` — one reflection question, referencing the morning intention if present
+3. `journalReflection` — 1–3 sentence reflection on a journal entry (one question max, optional)
+
+**Rolling memory**
+Stored at `users/{uid}/ai/context` as `AiContext { summary, themes, lastRebuiltAt, checkInsCount, tokenEstimate }`. Rebuilt every 10th check-in by `AiMentorService.rebuildContext`, fed the last 20 check-ins + profile intention. The summary prompt asks for "3–4 sentences, third person, no names, max 400 chars." The rebuild is fire-and-forget from `UserProvider._maybeRebuildAiContext()` — failures are logged and the existing context stays.
+
+**Fallback strategy (critical)**
+Every AI call is wrapped in `_safeGenerate`, which on exception OR empty response returns a handwritten Dart string from `AiService` (promoted from the old mock to a permanent fallback library). The UI never sees a broken prompt. `JourneyProvider` keeps both sync (fallback) and async (mentor) methods so callers can pick the right one.
+
+**UI integration**
+- `MorningCheckInScreen`: mood selection kicks off async `generateMorningPrompt`. While loading, a soft "the mentor is listening…" placeholder shows in the mentor card. CTA ("Set Today's Intention") is gated until the prompt lands.
+- `EveningReflectionScreen`: same pattern, but passes today's morning check-in (if any) so the question can reference the morning intention. Fallback question shows on failure.
+- `JournalEntryScreen`: journal reflection is OPT-IN — users tap "Ask the mentor" in the footer to trigger `_save(pop: false)` + `generateJournalReflection`. The reflection appears in a card below the entry with a mentor kicker and italic serif body. Non-blocking — users can exit without waiting.
+
 ## UI/UX Design
 
 - **Cinematic Intro:** Plays once on first launch. 5-scene anime artwork sequence with GLSL shader dissolve transitions (procedural noise with amber edge glow). Skippable. Stored via SharedPreferences `intro_cinematic_seen`.
@@ -282,7 +317,12 @@ Chosen over generating 12 separate face-layer PNGs (4 stages × 3 emotions) beca
 - `createProfile(...)` is kept as a back-compat wrapper over `buildOnboardingProfile(...)`. It no longer writes to SharedPreferences — the profile is held in memory until sign-in, then the auth listener persists it via `repo.saveProfile(seed.copyWith(id: uid))`. The uuid `id` generated during onboarding is REPLACED by the Firebase `uid` on first persist.
 - Firestore offline persistence is enabled in `main.dart` (`Settings(persistenceEnabled: true, cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED)`) so the UX doesn't regress vs SharedPrefs when the user is offline.
 - Legacy SharedPreferences data is migrated to Firestore on first post-upgrade sign-in via `StorageService.legacyProfile/legacyCheckIns/legacyJournalEntries` + `FirestoreRepository.migrateFromLegacy`. The guard `legacy_migrated_to_firestore` stops re-running. Legacy keys are cleared after a successful import.
-- AiService returns pre-written prompts keyed by conflict type + mood — not real AI.
+- `AiService` is now the **fallback** library — it returns pre-written Dart strings keyed by conflict type + mood. Used when `AiMentorService` can't reach Gemini. Do not delete it; do not rename it (callers reference it by type).
+- `AiMentorService` uses the `firebase_ai` package (NOT the deprecated `firebase_vertexai`). `firebase_ai` 3.11.x requires `firebase_core` 4.x, which would be a bigger migration — we're pinned at `firebase_ai: ^2.3.0` / `firebase_core: ^3.8.0`. That's still current-generation and supports Gemini 2.5 Flash via `FirebaseAI.googleAI()`. Upgrade to `firebase_core` 4.x is tracked in the Phase 2 TODO.
+- App Check is activated client-side in `AiMentorService.init()` but enforcement is NOT turned on in the Firebase console. The client will silently ignore the absence of enforcement; when we flip the server-side switch at launch, the client is already ready.
+- `AiMentorService.init()` is wrapped in try/catch — if it fails (e.g. no Firebase app, model creation error), the service falls into "fallback-only" mode and everything else continues to work. Critical for test harness behaviour and offline dev.
+- AI rolling context (`users/{uid}/ai/context`) is rebuilt on every 10th check-in where `_checkIns.length % 10 == 0`. Because `_checkIns` is windowed to 30 days, heavy users may trigger rebuilds more often than light users — acceptable for MVP.
+- `JourneyProvider` keeps BOTH sync (fallback-only) and async (AI-backed) prompt methods. Existing callers using `getMorningPrompt` / `getEveningQuestion` still resolve synchronously from the fallback library — that's intentional so nothing breaks. New UI code should use `generateMorningPrompt` / `generateEveningQuestion` / `generateJournalReflection`.
 - go_router creates new router instance on every build via `AppRouter.router(userProvider)` — acceptable for MVP but should be cached in Phase 2.
 - Cinematic intro uses manual opacity stepping (not AnimationController) for text fade timing. Scene transitions use a 1.4s AnimationController with easeInOut curve driving the GLSL dissolve shader.
 - Fragment shaders are registered under `flutter: shaders:` in pubspec.yaml (not `assets:`). The dissolve shader is loaded once via `DissolveShaderCache` and reused across all transitions.
@@ -313,23 +353,28 @@ Chosen over generating 12 separate face-layer PNGs (4 stages × 3 emotions) beca
 - [x] One-shot migration from SharedPreferences to Firestore on first post-upgrade sign-in
 - [x] JSON round-trip tests (`test/firestore_repository_test.dart`)
 
-## Phase 1C TODO (next — AI mentor)
+## Phase 1C (complete — 2026-04-17)
 
-- Replace mock `AiService` with `AiMentorService` backed by `firebase_ai` + Gemini 2.5 Flash
-- Rolling `users/{uid}/ai/context` summary, rebuilt every ~10 check-ins
-- App Check (DeviceCheck on iOS, Play Integrity on Android) — required before the proxy is publicly hittable
-- Loading states in `MorningCheckInScreen`, `EveningReflectionScreen`, `JournalEntryScreen`
-- Fallback to the existing Dart string library on Gemini failures
+- [x] Real `AiMentorService` backed by `firebase_ai` + Gemini 2.5 Flash (Google AI, not Vertex)
+- [x] System prompt wires in the mentor voice (calm/kind/direct, 1–3 sentences, no markdown/emojis, gentle crisis pointer)
+- [x] Three AI methods: `morningPrompt`, `eveningQuestion`, `journalReflection`
+- [x] Rolling `users/{uid}/ai/context` summary, rebuilt every 10th check-in (based on the loaded 30-day window)
+- [x] App Check wired client-side (`FirebaseAppCheck.activate` with debug providers in dev, DeviceCheck/Play Integrity in release). Enforcement NOT enabled in the Firebase console yet — that's a launch task.
+- [x] Loading states in `MorningCheckInScreen`, `EveningReflectionScreen`
+- [x] Optional "Ask the mentor" reflection card in `JournalEntryScreen` (surfaces after save, non-blocking)
+- [x] Guaranteed fallback to the Dart string library on any failure — users never see a broken prompt
+- [x] Unit tests for fallback behaviour (`test/ai_mentor_service_test.dart`)
 
 ## Phase 2 TODO
 
-- Real Claude/Gemini AI mentor integration via `firebase_ai`
 - RevenueCat subscription integration (hook paywall CTA up to real purchase flow)
-- App Check enforcement (currently added to pubspec but not initialised)
+- App Check ENFORCEMENT — enable on the Firebase console for the `gemini-2.5-flash` endpoint once client-side is rolled out to enough users
 - Weekly insight reports (card stack format)
 - Voyage Map with real data visualization
 - Push notifications (morning + evening)
 - Multiple conflict types per user
+- Voice mentor (credits at `users/{uid}/credits/voiceMinutes` — Firestore slot reserved)
+- Upgrade `firebase_core` 3.x → 4.x so we can move to `firebase_ai` 3.11.x (currently pinned at 2.3.0 which is compatible with our `firebase_core ^3.8.0`)
 
 ## Phase 1A Release Checklist (do before TestFlight)
 

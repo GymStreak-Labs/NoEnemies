@@ -23,6 +23,7 @@ class _EveningReflectionScreenState extends State<EveningReflectionScreen> {
   Mood? _selectedMood;
   int _step = 0; // 0 = mood, 1 = question, 2 = dimensions, 3 = summary
   String? _question;
+  bool _loadingQuestion = false;
 
   // Dimension values
   double _peace = 0.5;
@@ -39,21 +40,50 @@ class _EveningReflectionScreenState extends State<EveningReflectionScreen> {
   void _onMoodSelected(Mood mood) {
     setState(() {
       _selectedMood = mood;
+      _step = 1;
+      _loadingQuestion = true;
+      _question = null;
     });
 
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted) return;
-      final profile = context.read<UserProvider>().profile;
-      if (profile != null) {
-        final journeyProvider = context.read<JourneyProvider>();
-        final question =
-            journeyProvider.getEveningQuestion(profile.primaryConflict);
+    () async {
+      final userProvider = context.read<UserProvider>();
+      final journeyProvider = context.read<JourneyProvider>();
+      final profile = userProvider.profile;
+      if (profile == null) return;
+      // Try to pass today's morning check-in as context so the question
+      // references the user's intention.
+      final now = DateTime.now();
+      final todayMorning = userProvider.checkIns
+          .cast<CheckIn?>()
+          .firstWhere(
+            (c) =>
+                c != null &&
+                c.type == CheckInType.morning &&
+                c.date.year == now.year &&
+                c.date.month == now.month &&
+                c.date.day == now.day,
+            orElse: () => null,
+          );
+      try {
+        final question = await journeyProvider.generateEveningQuestion(
+          profile: profile,
+          todayMorning: todayMorning,
+          context: userProvider.aiContext,
+        );
+        if (!mounted) return;
         setState(() {
           _question = question;
-          _step = 1;
+          _loadingQuestion = false;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _question =
+              journeyProvider.getEveningQuestion(profile.primaryConflict);
+          _loadingQuestion = false;
         });
       }
-    });
+    }();
   }
 
   void _proceedToDimensions() {
@@ -112,33 +142,38 @@ class _EveningReflectionScreenState extends State<EveningReflectionScreen> {
                 onMoodSelected: _onMoodSelected,
               ),
 
-              // Step 2: Guided question
-              if (_step >= 1 && _question != null) ...[
+              // Step 2: Guided question (may be loading)
+              if (_step >= 1) ...[
                 const SizedBox(height: 32),
-                Text(
-                  _question!,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        height: 1.4,
-                      ),
-                ).animate().fadeIn(duration: 500.ms),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _reflectionController,
-                  maxLines: 5,
-                  style: const TextStyle(color: AppColors.textPrimary),
-                  decoration: const InputDecoration(
-                    hintText: 'Write freely...',
-                  ),
-                ).animate().fadeIn(delay: 200.ms, duration: 400.ms),
-                const SizedBox(height: 20),
-                if (_step == 1)
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton(
-                      onPressed: _proceedToDimensions,
-                      child: const Text('Rate Your Dimensions'),
+                if (_loadingQuestion || _question == null)
+                  const _MentorThinking()
+                else ...[
+                  Text(
+                    _question!,
+                    style:
+                        Theme.of(context).textTheme.headlineSmall?.copyWith(
+                              height: 1.4,
+                            ),
+                  ).animate().fadeIn(duration: 500.ms),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _reflectionController,
+                    maxLines: 5,
+                    style: const TextStyle(color: AppColors.textPrimary),
+                    decoration: const InputDecoration(
+                      hintText: 'Write freely...',
                     ),
-                  ).animate().fadeIn(delay: 300.ms, duration: 400.ms),
+                  ).animate().fadeIn(delay: 200.ms, duration: 400.ms),
+                  const SizedBox(height: 20),
+                  if (_step == 1)
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: _proceedToDimensions,
+                        child: const Text('Rate Your Dimensions'),
+                      ),
+                    ).animate().fadeIn(delay: 300.ms, duration: 400.ms),
+                ],
               ],
 
               // Step 3: Dimension ratings
@@ -201,6 +236,39 @@ class _EveningReflectionScreenState extends State<EveningReflectionScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Placeholder shown while the mentor's evening question is being generated.
+class _MentorThinking extends StatelessWidget {
+  const _MentorThinking();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: AppColors.accent.withValues(alpha: 0.6),
+            shape: BoxShape.circle,
+          ),
+        )
+            .animate(onPlay: (c) => c.repeat())
+            .fadeOut(duration: 700.ms)
+            .then()
+            .fadeIn(duration: 700.ms),
+        const SizedBox(width: 10),
+        Text(
+          'The mentor is considering your day…',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.textSecondary,
+                fontStyle: FontStyle.italic,
+              ),
+        ),
+      ],
     );
   }
 }

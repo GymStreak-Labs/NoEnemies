@@ -31,8 +31,8 @@ dependencies:
   google_sign_in: ^6.2.2
   # Added now, used in Phase 1B / 1C
   cloud_firestore: ^5.5.0
-  firebase_ai: ^2.0.0
-  firebase_app_check: ^0.3.2+3
+  firebase_ai: ^2.3.0
+  firebase_app_check: ^0.3.2+10
 
 dev_dependencies:
   flutter_test:

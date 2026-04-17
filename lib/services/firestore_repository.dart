@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
+import '../models/ai_context.dart';
 import '../models/check_in.dart';
 import '../models/journal_entry.dart';
 import '../models/user_profile.dart';
@@ -44,6 +45,9 @@ class FirestoreRepository {
 
   CollectionReference<Map<String, dynamic>> get _journalCol =>
       _userDoc.collection('journal');
+
+  DocumentReference<Map<String, dynamic>> get _aiContextDoc =>
+      _userDoc.collection('ai').doc('context');
 
   // ---------------------------------------------------------------------------
   // Profile
@@ -197,6 +201,31 @@ class FirestoreRepository {
 
   Future<void> deleteJournalEntry(String id) async {
     await _journalCol.doc(id).delete();
+  }
+
+  // ---------------------------------------------------------------------------
+  // AI context — rolling summary rebuilt every ~10 check-ins (see
+  // `AiMentorService.rebuildContext`). Safe to call before any context exists.
+  // ---------------------------------------------------------------------------
+
+  Future<AiContext> loadAiContext() async {
+    try {
+      final snap = await _aiContextDoc.get();
+      final data = snap.data();
+      if (data == null) return AiContext.empty;
+      return AiContext.fromFirestore(data);
+    } catch (e, st) {
+      debugPrint('[FirestoreRepository] loadAiContext failed: $e\n$st');
+      return AiContext.empty;
+    }
+  }
+
+  Future<void> saveAiContext(AiContext context) async {
+    try {
+      await _aiContextDoc.set(context.toFirestore(), SetOptions(merge: true));
+    } catch (e, st) {
+      debugPrint('[FirestoreRepository] saveAiContext failed: $e\n$st');
+    }
   }
 
   // ---------------------------------------------------------------------------

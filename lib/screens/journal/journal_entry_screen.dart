@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../models/journal_entry.dart';
 import '../../models/user_profile.dart';
+import '../../providers/journey_provider.dart';
 import '../../providers/user_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/stage_particles.dart';
@@ -30,6 +31,11 @@ class _JournalEntryScreenState extends State<JournalEntryScreen> {
   JournalEntry? _existingEntry;
   bool _isEditing = false;
   DateTime _pageDate = DateTime.now();
+
+  /// Mentor reflection on the saved entry. Non-blocking — fetched after
+  /// a successful Save tap and surfaced as a card below the body.
+  String? _mentorReflection;
+  bool _loadingReflection = false;
 
   @override
   void initState() {
@@ -67,6 +73,7 @@ class _JournalEntryScreenState extends State<JournalEntryScreen> {
     }
 
     final userProvider = context.read<UserProvider>();
+    final journeyProvider = context.read<JourneyProvider>();
 
     if (_isEditing && _existingEntry != null) {
       await userProvider.updateJournalEntry(
@@ -82,6 +89,39 @@ class _JournalEntryScreenState extends State<JournalEntryScreen> {
       );
     }
     HapticFeedback.selectionClick();
+
+    // If the caller is NOT popping the screen, fetch a mentor reflection
+    // asynchronously so it can appear below the entry. Popping means the
+    // user is navigating away — skip the reflection to save tokens.
+    if (!pop && content.isNotEmpty) {
+      final profile = userProvider.profile;
+      if (profile != null) {
+        setState(() {
+          _loadingReflection = true;
+          _mentorReflection = null;
+        });
+        () async {
+          try {
+            final reflection = await journeyProvider.generateJournalReflection(
+              profile: profile,
+              entryText: content,
+              context: userProvider.aiContext,
+            );
+            if (!mounted) return;
+            setState(() {
+              _mentorReflection = reflection;
+              _loadingReflection = false;
+            });
+          } catch (_) {
+            if (!mounted) return;
+            setState(() {
+              _loadingReflection = false;
+            });
+          }
+        }();
+      }
+    }
+
     if (pop && mounted) context.pop();
   }
 
@@ -369,8 +409,94 @@ class _JournalEntryScreenState extends State<JournalEntryScreen> {
                   ),
                 ),
 
+                // Optional mentor reflection card — only appears after the
+                // user explicitly asks for one (tap "Reflect"). Non-blocking,
+                // and dismissible by navigating away.
+                if (_loadingReflection || _mentorReflection != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(26, 8, 26, 8),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            AppColors.primary.withValues(alpha: 0.08),
+                            AppColors.accent.withValues(alpha: 0.05),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.auto_awesome,
+                                color: AppColors.primary,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'MENTOR',
+                                style: TextStyle(
+                                  color: AppColors.primary,
+                                  fontSize: 10,
+                                  letterSpacing: 2,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          if (_loadingReflection)
+                            Row(
+                              children: [
+                                Container(
+                                  width: 6,
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary
+                                        .withValues(alpha: 0.6),
+                                    shape: BoxShape.circle,
+                                  ),
+                                )
+                                    .animate(onPlay: (c) => c.repeat())
+                                    .fadeOut(duration: 700.ms)
+                                    .then()
+                                    .fadeIn(duration: 700.ms),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Reading your words…',
+                                  style: TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            Text(
+                              _mentorReflection!,
+                              style: GoogleFonts.inter(
+                                fontSize: 14,
+                                height: 1.6,
+                                color: AppColors.textPrimary
+                                    .withValues(alpha: 0.9),
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ).animate().fadeIn(duration: 500.ms),
+                        ],
+                      ),
+                    ),
+                  ),
+
                 // Footer — live word count + subtle reminder that bookmarked
-                // entries join the Book of Peace.
+                // entries join the Book of Peace. Also hosts the Reflect CTA.
                 Container(
                   padding: const EdgeInsets.fromLTRB(26, 10, 26, 10),
                   decoration: BoxDecoration(
@@ -390,6 +516,22 @@ class _JournalEntryScreenState extends State<JournalEntryScreen> {
                           letterSpacing: 0.5,
                         ),
                       ),
+                      const SizedBox(width: 12),
+                      if (_wordCount > 0 &&
+                          _mentorReflection == null &&
+                          !_loadingReflection)
+                        GestureDetector(
+                          onTap: () => _save(pop: false),
+                          child: Text(
+                            'Ask the mentor',
+                            style: TextStyle(
+                              color: AppColors.primary.withValues(alpha: 0.9),
+                              fontSize: 11,
+                              letterSpacing: 0.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
                       const Spacer(),
                       Text(
                         isBookmarked

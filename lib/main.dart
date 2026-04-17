@@ -16,6 +16,7 @@ import 'providers/journey_provider.dart';
 import 'providers/user_provider.dart';
 import 'router/app_router.dart';
 import 'screens/onboarding/intro_cinematic_screen.dart';
+import 'services/ai_mentor_service.dart';
 import 'services/ai_service.dart';
 import 'services/auth_service.dart';
 import 'services/firestore_repository.dart';
@@ -66,6 +67,12 @@ void main() async {
   await storageService.init();
 
   final aiService = AiService();
+  final aiMentor = AiMentorService(fallback: aiService);
+  if (firebaseReady) {
+    // Non-blocking — if init fails, the mentor falls back to the Dart
+    // string library transparently.
+    await aiMentor.init();
+  }
   final authService = AuthService();
 
   AppRouter.cinematicSeen = await IntroCinematicScreen.hasBeenSeen();
@@ -77,7 +84,7 @@ void main() async {
   //   90 = Peacemaker
   const int debugPeaceDays = 0;
 
-  final userProvider = UserProvider(storageService);
+  final userProvider = UserProvider(storageService, mentor: aiMentor);
 
   // Hook up auth state → repository attach/detach. This is the ONE place in
   // the app where Firestore repositories are created; every other layer
@@ -163,7 +170,9 @@ void main() async {
       providers: [
         Provider<AuthService>.value(value: authService),
         ChangeNotifierProvider.value(value: userProvider),
-        ChangeNotifierProvider(create: (_) => JourneyProvider(aiService)),
+        ChangeNotifierProvider(
+          create: (_) => JourneyProvider(aiService, mentor: aiMentor),
+        ),
       ],
       child: const NoEnemiesApp(),
     ),

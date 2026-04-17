@@ -28,27 +28,46 @@ class _MorningCheckInScreenState extends State<MorningCheckInScreen> {
     super.dispose();
   }
 
+  bool _loadingPrompt = false;
+
   void _onMoodSelected(Mood mood) {
     setState(() {
       _selectedMood = mood;
+      _step = 1;
+      _loadingPrompt = true;
+      _aiPrompt = null;
     });
 
-    // Generate AI prompt after a short delay
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
-      final profile = context.read<UserProvider>().profile;
-      if (profile != null) {
-        final journeyProvider = context.read<JourneyProvider>();
-        final prompt = journeyProvider.getMorningPrompt(
-          profile.primaryConflict,
+    // Fetch the AI prompt async — UI shows a soft placeholder in the meantime.
+    () async {
+      final userProvider = context.read<UserProvider>();
+      final journeyProvider = context.read<JourneyProvider>();
+      final profile = userProvider.profile;
+      if (profile == null) return;
+      try {
+        final prompt = await journeyProvider.generateMorningPrompt(
+          profile: profile,
           mood: mood,
+          context: userProvider.aiContext,
+          last7Days: userProvider.checkIns,
         );
+        if (!mounted) return;
         setState(() {
           _aiPrompt = prompt;
-          _step = 1;
+          _loadingPrompt = false;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        // Belt-and-braces — journeyProvider already falls back internally.
+        setState(() {
+          _aiPrompt = journeyProvider.getMorningPrompt(
+            profile.primaryConflict,
+            mood: mood,
+          );
+          _loadingPrompt = false;
         });
       }
-    });
+    }();
   }
 
   void _proceedToIntention() {
@@ -142,8 +161,8 @@ class _MorningCheckInScreenState extends State<MorningCheckInScreen> {
                 onMoodSelected: _onMoodSelected,
               ),
 
-              // Step 2: AI Prompt
-              if (_step >= 1 && _aiPrompt != null) ...[
+              // Step 2: AI Prompt (may be loading)
+              if (_step >= 1) ...[
                 const SizedBox(height: 32),
                 Container(
                   padding: const EdgeInsets.all(20),
@@ -182,20 +201,25 @@ class _MorningCheckInScreenState extends State<MorningCheckInScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      Text(
-                        _aiPrompt!,
-                        style:
-                            Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                  color: AppColors.textPrimary,
-                                  height: 1.6,
-                                  fontStyle: FontStyle.italic,
-                                ),
-                      ),
+                      if (_loadingPrompt || _aiPrompt == null)
+                        _MentorThinking()
+                      else
+                        Text(
+                          _aiPrompt!,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyLarge
+                              ?.copyWith(
+                                color: AppColors.textPrimary,
+                                height: 1.6,
+                                fontStyle: FontStyle.italic,
+                              ),
+                        ),
                     ],
                   ),
                 ).animate().fadeIn(duration: 500.ms),
                 const SizedBox(height: 20),
-                if (_step == 1)
+                if (_step == 1 && !_loadingPrompt && _aiPrompt != null)
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton(
@@ -242,6 +266,38 @@ class _MorningCheckInScreenState extends State<MorningCheckInScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Soft placeholder while the mentor prompt streams back. Keeps the card's
+/// visual height roughly stable so the CTA doesn't jump when the text lands.
+class _MentorThinking extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.6),
+            shape: BoxShape.circle,
+          ),
+        )
+            .animate(onPlay: (c) => c.repeat())
+            .fadeOut(duration: 700.ms)
+            .then()
+            .fadeIn(duration: 700.ms),
+        const SizedBox(width: 8),
+        Text(
+          'The mentor is listening…',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.textSecondary,
+                fontStyle: FontStyle.italic,
+              ),
+        ),
+      ],
     );
   }
 }

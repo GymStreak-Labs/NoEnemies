@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../models/ai_context.dart';
 import '../models/check_in.dart';
 import '../models/conflict_type.dart';
 import '../models/current_emotion.dart';
 import '../models/journal_entry.dart';
 import '../models/user_profile.dart';
+import '../services/ai_mentor_service.dart';
 import '../services/firestore_repository.dart';
 import '../services/storage_service.dart';
 
@@ -21,9 +23,18 @@ import '../services/storage_service.dart';
 /// authenticated. See [attachRepository]/[detachRepository], wired from the
 /// auth state listener in [main.dart].
 class UserProvider extends ChangeNotifier {
-  UserProvider(this._storage);
+  UserProvider(this._storage, {AiMentorService? mentor}) : _mentor = mentor;
 
   final StorageService _storage;
+
+  /// Optional — when provided, the rolling AI context is rebuilt every 10th
+  /// check-in. Wired up from `main.dart`. Not required for the provider to
+  /// function.
+  AiMentorService? _mentor;
+
+  void attachMentor(AiMentorService mentor) {
+    _mentor = mentor;
+  }
 
   FirestoreRepository? _repo;
   FirestoreRepository? get repo => _repo;
@@ -31,6 +42,11 @@ class UserProvider extends ChangeNotifier {
   UserProfile? _profile;
   List<CheckIn> _checkIns = [];
   List<JournalEntry> _journalEntries = [];
+  AiContext _aiContext = AiContext.empty;
+
+  /// Rolling AI memory summary (cached). Refreshed after
+  /// [attachRepository] and after each rebuild trigger.
+  AiContext get aiContext => _aiContext;
 
   StreamSubscription<UserProfile?>? _profileSub;
   StreamSubscription<List<CheckIn>>? _checkInsSub;
@@ -154,6 +170,14 @@ class UserProvider extends ChangeNotifier {
 
     // Subscribe to live updates after the initial seed (so we don't race).
     await _subscribeStreams(repo);
+
+    // Warm the AI context cache. Safe to fail silently.
+    try {
+      _aiContext = await repo.loadAiContext();
+    } catch (_) {
+      _aiContext = AiContext.empty;
+    }
+
     notifyListeners();
   }
 
@@ -164,6 +188,7 @@ class UserProvider extends ChangeNotifier {
     _profile = null;
     _checkIns = [];
     _journalEntries = [];
+    _aiContext = AiContext.empty;
     notifyListeners();
   }
 
@@ -389,6 +414,39 @@ class UserProvider extends ChangeNotifier {
     );
     _profile = updated;
     await repo.saveProfile(updated);
+
+    _maybeRebuildAiContext();
+  }
+
+  /// Rolling-context rebuild trigger. Fires every 10th check-in (based on
+  /// the currently-loaded window) so the mentor's long-term memory stays
+  /// fresh without paying Gemini on every single call.
+  ///
+  /// The rebuild is fire-and-forget — failures are logged and the existing
+  /// context is retained. The [AiMentorService] itself handles the Gemini
+  /// call + Firestore persistence.
+  void _maybeRebuildAiContext() {
+    final mentor = _mentor;
+    final repo = _repo;
+    final profile = _profile;
+    if (mentor == null || repo == null || profile == null) return;
+    if (_checkIns.isEmpty) return;
+    if (_checkIns.length % 10 != 0) return;
+
+    // Fire-and-forget — don't block the UI on a network call.
+    () async {
+      try {
+        final rebuilt = await mentor.rebuildContext(
+          repo: repo,
+          profile: profile,
+          recentCheckIns: _checkIns,
+        );
+        _aiContext = rebuilt;
+        notifyListeners();
+      } catch (e, st) {
+        debugPrint('[UserProvider] AI context rebuild failed: $e\n$st');
+      }
+    }();
   }
 
   // ---------------------------------------------------------------------------

@@ -1,9 +1,17 @@
 import '../models/conflict_type.dart';
 import '../models/check_in.dart';
 
-/// Mock AI service that returns pre-written prompts and reflections
-/// based on conflict type and mood. Will be replaced with real
-/// Claude/Gemini API calls in Phase 2.
+/// Fallback AI service that returns pre-written prompts and reflections
+/// based on conflict type and mood.
+///
+/// Phase 1C: this is no longer the primary AI — it is the *fallback* used by
+/// [AiMentorService] when Gemini fails, times out, or returns an empty
+/// response. The handwritten strings are intentionally kept in Dart (not
+/// removed) so the app degrades gracefully when the user is offline or the
+/// model is unreachable.
+///
+/// Historically named `AiService`; keeping the type name for back-compat with
+/// existing callers ([JourneyProvider], tests).
 class AiService {
   /// Returns a morning prompt based on the user's conflict type and mood.
   String getMorningPrompt(ConflictType conflictType, Mood mood) {
