@@ -94,7 +94,18 @@ You are not their therapist. You are a calm voice beside them on a long journey.
         systemInstruction: Content.text(_systemPrompt),
         generationConfig: GenerationConfig(
           temperature: 0.8,
-          maxOutputTokens: 200,
+          // 400 leaves comfortable headroom for the 1–3 sentence outputs we
+          // ask for. Live smoke testing with 200 produced truncated responses
+          // on Gemini 2.5 Flash ("Reflecting on your morning intention,") —
+          // the model was spending budget we couldn't see before emitting
+          // anything visible. See the thinkingConfig note below.
+          maxOutputTokens: 400,
+          // Gemini 2.5 Flash spends "thinking" tokens before the visible
+          // output, and those tokens count against maxOutputTokens. For our
+          // short, tone-constrained creative prompts (1–3 sentences, specific
+          // voice), thinking is overkill and eats the budget. Disable it so
+          // the whole 400-token window is available for the actual answer.
+          thinkingConfig: ThinkingConfig.withThinkingBudget(0),
         ),
       );
     } catch (e, st) {
