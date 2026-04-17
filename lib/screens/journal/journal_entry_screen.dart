@@ -10,6 +10,7 @@ import '../../models/user_profile.dart';
 import '../../providers/journey_provider.dart';
 import '../../providers/user_provider.dart';
 import '../../theme/app_colors.dart';
+import '../../widgets/journal_audio_player.dart';
 import '../../widgets/stage_particles.dart';
 
 /// A single journal page. Written in a cinematic tome style — amber-on-black,
@@ -315,6 +316,31 @@ class _JournalEntryScreenState extends State<JournalEntryScreen> {
                 ),
 
                 const SizedBox(height: 16),
+
+                // Audio player bar — only appears for voice entries that have
+                // a stored clip. Graceful fallback when Storage is unavailable.
+                if (_existingEntry?.hasAudio == true) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(26, 0, 26, 12),
+                    child: Builder(
+                      builder: (context) {
+                        final repo = context.watch<UserProvider>().repo;
+                        final entry = _existingEntry!;
+                        final path = entry.audioStoragePath;
+                        if (repo == null || path == null) {
+                          return const SizedBox.shrink();
+                        }
+                        return JournalAudioPlayer(
+                          repository: repo,
+                          storagePath: path,
+                          knownDuration: Duration(
+                            seconds: entry.audioDurationSeconds ?? 0,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
 
                 // The page itself — a single flowing column with title + body
                 // living on the same "sheet", separated by a thin hairline.

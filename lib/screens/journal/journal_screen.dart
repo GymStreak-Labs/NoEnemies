@@ -201,6 +201,27 @@ class _Header extends StatelessWidget {
               ],
             ),
           ),
+          // Mic (voice entry) — lives next to the quill because speaking is
+          // often what unlocks writing.
+          GestureDetector(
+            onTap: () => context.push('/journal/voice'),
+            child: Container(
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.12),
+                ),
+              ),
+              child: Icon(
+                Icons.mic_none_rounded,
+                color: AppColors.primary.withValues(alpha: 0.9),
+                size: 20,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           GestureDetector(
             onTap: () => context.push('/journal/new'),
             child: Container(
@@ -436,6 +457,14 @@ class _JournalEntryCard extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
+                    if (entry.hasAudio) ...[
+                      Icon(
+                        Icons.mic_none_rounded,
+                        color: AppColors.primary.withValues(alpha: 0.7),
+                        size: 12,
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     // Word count, because it feels earned.
                     Text(
                       '${_wordCount(entry.content)} words',

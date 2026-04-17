@@ -169,6 +169,8 @@ void main() async {
     MultiProvider(
       providers: [
         Provider<AuthService>.value(value: authService),
+        Provider<StorageService>.value(value: storageService),
+        Provider<AiMentorService>.value(value: aiMentor),
         ChangeNotifierProvider.value(value: userProvider),
         ChangeNotifierProvider(
           create: (_) => JourneyProvider(aiService, mentor: aiMentor),

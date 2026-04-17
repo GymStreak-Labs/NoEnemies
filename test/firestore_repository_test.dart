@@ -169,6 +169,57 @@ void main() {
       );
       expect(entry.wordCount, 0);
     });
+
+    test('audio fields round-trip when present', () {
+      final entry = JournalEntry(
+        id: 'voice-1',
+        date: DateTime(2026, 4, 17, 8, 0),
+        title: 'Ten seconds of breath',
+        content: 'I said more than I meant to and it felt good.',
+        audioStoragePath: 'users/uid-xyz/audio/journal/voice-1.wav',
+        audioDurationSeconds: 47,
+      );
+      final map = entry.toFirestore();
+      expect(map['audioStoragePath'], 'users/uid-xyz/audio/journal/voice-1.wav');
+      expect(map['audioDurationSeconds'], 47);
+
+      final decoded = JournalEntry.fromFirestore(map);
+      expect(decoded.audioStoragePath, entry.audioStoragePath);
+      expect(decoded.audioDurationSeconds, 47);
+      expect(decoded.hasAudio, true);
+    });
+
+    test('audio fields are omitted when null (old entry compat)', () {
+      final entry = JournalEntry(
+        id: 'text-1',
+        date: DateTime(2026, 4, 17),
+        title: 't',
+        content: 'c',
+      );
+      final map = entry.toFirestore();
+      expect(map.containsKey('audioStoragePath'), false);
+      expect(map.containsKey('audioDurationSeconds'), false);
+
+      final decoded = JournalEntry.fromFirestore(map);
+      expect(decoded.hasAudio, false);
+      expect(decoded.audioStoragePath, isNull);
+      expect(decoded.audioDurationSeconds, isNull);
+    });
+
+    test('copyWith clearAudio drops audio fields', () {
+      final entry = JournalEntry(
+        id: 'voice-2',
+        date: DateTime(2026, 4, 17),
+        title: 't',
+        content: 'c',
+        audioStoragePath: 'users/u/audio/journal/voice-2.wav',
+        audioDurationSeconds: 12,
+      );
+      final cleared = entry.copyWith(clearAudio: true);
+      expect(cleared.hasAudio, false);
+      expect(cleared.audioStoragePath, isNull);
+      expect(cleared.audioDurationSeconds, isNull);
+    });
   });
 
   group('AiContext rebuild counter', () {

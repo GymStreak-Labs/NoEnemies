@@ -6,6 +6,8 @@
 // invariant for Phase 1C: the user NEVER sees a failure or blank prompt
 // when Gemini is unavailable.
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:no_enemies/models/ai_context.dart';
 import 'package:no_enemies/models/check_in.dart';
@@ -99,6 +101,19 @@ void main() {
 
     test('hasModel is false when no model is provided', () {
       expect(mentor.hasModel, isFalse);
+    });
+
+    test('transcribeAudio returns empty string when no model is configured',
+        () async {
+      // No Firebase model → fallback. The UI relies on this returning '' so
+      // the voice flow shows an error state rather than throwing.
+      final tmp = File(
+        '${Directory.systemTemp.path}/no_enemies_transcribe_test.wav',
+      );
+      // Don't actually create the file — transcribeAudio must short-circuit
+      // on model==null before ever reading bytes.
+      final result = await mentor.transcribeAudio(tmp);
+      expect(result, '');
     });
 
     test('init() never throws, even without Firebase', () async {

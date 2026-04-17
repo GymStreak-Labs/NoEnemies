@@ -33,6 +33,12 @@ dependencies:
   cloud_firestore: ^6.3.0
   firebase_ai: ^3.11.0
   firebase_app_check: ^0.4.3
+  # Phase 2 — voice journaling MVP. See docs/plans/backend/voice-mentor-research.md
+  firebase_storage: ^13.3.0
+  record: ^6.2.0
+  just_audio: ^0.10.5
+  permission_handler: ^12.0.1
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:

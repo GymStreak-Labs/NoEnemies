@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Raw audio — voice journaling records scratch WAVs under OS temp dirs, but
+# guard against accidental commits if anyone ever captures one in-repo.
+*.wav
+*.m4a

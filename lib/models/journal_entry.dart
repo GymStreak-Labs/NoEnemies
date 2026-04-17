@@ -9,13 +9,28 @@ class JournalEntry {
   final String content;
   final bool isBookmarked;
 
+  /// Phase 2 voice journaling — Firebase Storage path, e.g.
+  /// `users/{uid}/audio/journal/{entryId}.wav`. Null for plain text entries
+  /// and for voice entries where the user opted out of audio persistence.
+  final String? audioStoragePath;
+
+  /// Duration of the saved audio in seconds, if any. Used to show the
+  /// scrubber's total length without fetching the file first.
+  final int? audioDurationSeconds;
+
   const JournalEntry({
     required this.id,
     required this.date,
     required this.title,
     required this.content,
     this.isBookmarked = false,
+    this.audioStoragePath,
+    this.audioDurationSeconds,
   });
+
+  /// True when the entry has a playable audio clip attached.
+  bool get hasAudio =>
+      audioStoragePath != null && audioStoragePath!.isNotEmpty;
 
   /// Convenience: word count derived from [content]. Firestore stores this
   /// alongside the entry so we can sort/aggregate without re-tokenizing on
@@ -32,6 +47,10 @@ class JournalEntry {
     String? title,
     String? content,
     bool? isBookmarked,
+    String? audioStoragePath,
+    int? audioDurationSeconds,
+    // Explicit clears — nullable-override support without a sentinel.
+    bool clearAudio = false,
   }) {
     return JournalEntry(
       id: id ?? this.id,
@@ -39,6 +58,11 @@ class JournalEntry {
       title: title ?? this.title,
       content: content ?? this.content,
       isBookmarked: isBookmarked ?? this.isBookmarked,
+      audioStoragePath:
+          clearAudio ? null : (audioStoragePath ?? this.audioStoragePath),
+      audioDurationSeconds: clearAudio
+          ? null
+          : (audioDurationSeconds ?? this.audioDurationSeconds),
     );
   }
 
@@ -49,6 +73,9 @@ class JournalEntry {
       'title': title,
       'content': content,
       'isBookmarked': isBookmarked,
+      if (audioStoragePath != null) 'audioStoragePath': audioStoragePath,
+      if (audioDurationSeconds != null)
+        'audioDurationSeconds': audioDurationSeconds,
     };
   }
 
@@ -59,6 +86,8 @@ class JournalEntry {
       title: json['title'] as String? ?? '',
       content: json['content'] as String? ?? '',
       isBookmarked: json['isBookmarked'] as bool? ?? false,
+      audioStoragePath: json['audioStoragePath'] as String?,
+      audioDurationSeconds: (json['audioDurationSeconds'] as num?)?.toInt(),
     );
   }
 
@@ -73,6 +102,11 @@ class JournalEntry {
       'wordCount': wordCount,
       'createdAt': Timestamp.fromDate(date),
       'updatedAt': Timestamp.fromDate(now),
+      // Only include audio fields when present — keeps the doc small for
+      // text-only entries and lets old entries decode unchanged.
+      if (audioStoragePath != null) 'audioStoragePath': audioStoragePath,
+      if (audioDurationSeconds != null)
+        'audioDurationSeconds': audioDurationSeconds,
     };
   }
 
@@ -85,6 +119,8 @@ class JournalEntry {
       title: json['title'] as String? ?? '',
       content: json['content'] as String? ?? '',
       isBookmarked: json['isBookmarked'] as bool? ?? false,
+      audioStoragePath: json['audioStoragePath'] as String?,
+      audioDurationSeconds: (json['audioDurationSeconds'] as num?)?.toInt(),
     );
   }
 

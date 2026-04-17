@@ -22,6 +22,9 @@ import '../screens/crew/crew_tab.dart';
 import '../screens/you/you_tab.dart';
 import '../screens/journal/journal_screen.dart';
 import '../screens/journal/journal_entry_screen.dart';
+import '../screens/journal/voice_journal_entry_screen.dart';
+import '../services/ai_mentor_service.dart';
+import '../services/storage_service.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -215,6 +218,13 @@ class AppRouter {
         GoRoute(
           path: '/journal/new',
           builder: (context, state) => const JournalEntryScreen(),
+        ),
+        GoRoute(
+          path: '/journal/voice',
+          builder: (context, state) => VoiceJournalEntryScreen(
+            storage: context.read<StorageService>(),
+            mentor: context.read<AiMentorService>(),
+          ),
         ),
         GoRoute(
           path: '/journal/:id',
