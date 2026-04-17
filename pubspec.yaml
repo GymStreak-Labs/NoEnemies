@@ -25,14 +25,14 @@ dependencies:
   crypto: ^3.0.6
 
   # --- Firebase (Phase 1A: auth wired; Firestore + AI wired in later phases) ---
-  firebase_core: ^3.8.0
-  firebase_auth: ^5.3.3
-  sign_in_with_apple: ^6.1.4
-  google_sign_in: ^6.2.2
+  firebase_core: ^4.7.0
+  firebase_auth: ^6.4.0
+  sign_in_with_apple: ^7.0.1
+  google_sign_in: ^7.2.0
   # Added now, used in Phase 1B / 1C
-  cloud_firestore: ^5.5.0
-  firebase_ai: ^2.3.0
-  firebase_app_check: ^0.3.2+10
+  cloud_firestore: ^6.3.0
+  firebase_ai: ^3.11.0
+  firebase_app_check: ^0.4.3
 
 dev_dependencies:
   flutter_test:
