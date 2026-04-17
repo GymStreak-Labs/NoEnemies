@@ -418,23 +418,41 @@ class UserProvider extends ChangeNotifier {
     _maybeRebuildAiContext();
   }
 
-  /// Rolling-context rebuild trigger. Fires every 10th check-in (based on
-  /// the currently-loaded window) so the mentor's long-term memory stays
-  /// fresh without paying Gemini on every single call.
+  /// Rolling-context rebuild trigger. Fires every 10 check-ins, anchored to
+  /// the persisted [AiContext.checkInsSinceLastRebuild] counter — NOT the
+  /// windowed `_checkIns` list size, which would misfire once the 30-day
+  /// window saturates (length stays at the cap even as new entries arrive).
   ///
-  /// The rebuild is fire-and-forget — failures are logged and the existing
-  /// context is retained. The [AiMentorService] itself handles the Gemini
-  /// call + Firestore persistence.
+  /// Increments the counter on every call, persists it, and fires a rebuild
+  /// when it reaches the threshold. The rebuild itself writes a fresh
+  /// [AiContext] (with `checkInsSinceLastRebuild: 0`) to Firestore — see
+  /// [AiMentorService.rebuildContext].
+  ///
+  /// Fire-and-forget — failures are logged and the existing context is
+  /// retained.
+  static const _kRebuildThreshold = 10;
+
   void _maybeRebuildAiContext() {
     final mentor = _mentor;
     final repo = _repo;
     final profile = _profile;
     if (mentor == null || repo == null || profile == null) return;
     if (_checkIns.isEmpty) return;
-    if (_checkIns.length % 10 != 0) return;
+
+    final next = _aiContext.checkInsSinceLastRebuild + 1;
+    final bumped = _aiContext.copyWith(checkInsSinceLastRebuild: next);
+    _aiContext = bumped;
+
+    // Persist the bumped counter immediately so we don't lose progress if
+    // the app is killed before the next check-in. Cheap single-field write.
+    unawaited(repo.saveAiContext(bumped).catchError((Object e, StackTrace st) {
+      debugPrint('[UserProvider] persist AiContext counter failed: $e\n$st');
+    }));
+
+    if (next < _kRebuildThreshold) return;
 
     // Fire-and-forget — don't block the UI on a network call.
-    () async {
+    unawaited(() async {
       try {
         final rebuilt = await mentor.rebuildContext(
           repo: repo,
@@ -446,7 +464,7 @@ class UserProvider extends ChangeNotifier {
       } catch (e, st) {
         debugPrint('[UserProvider] AI context rebuild failed: $e\n$st');
       }
-    }();
+    }());
   }
 
   // ---------------------------------------------------------------------------

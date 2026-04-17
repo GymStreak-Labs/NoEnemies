@@ -10,7 +10,17 @@ class AiContext {
   final String summary;
   final List<String> themes;
   final DateTime? lastRebuiltAt;
+
+  /// Size of the slice used to build [summary] at the last rebuild. Informational.
   final int checkInsCount;
+
+  /// Monotonic counter of check-ins recorded since the last successful rebuild.
+  /// Incremented by [UserProvider] on every saved check-in, reset to 0 when
+  /// the context is rebuilt. Anchored here (not to the windowed check-in
+  /// stream) so the trigger stays correct for long-term users whose 30-day
+  /// window has saturated.
+  final int checkInsSinceLastRebuild;
+
   final int tokenEstimate;
 
   const AiContext({
@@ -18,6 +28,7 @@ class AiContext {
     this.themes = const [],
     this.lastRebuiltAt,
     this.checkInsCount = 0,
+    this.checkInsSinceLastRebuild = 0,
     this.tokenEstimate = 0,
   });
 
@@ -30,6 +41,7 @@ class AiContext {
     List<String>? themes,
     DateTime? lastRebuiltAt,
     int? checkInsCount,
+    int? checkInsSinceLastRebuild,
     int? tokenEstimate,
   }) {
     return AiContext(
@@ -37,6 +49,8 @@ class AiContext {
       themes: themes ?? this.themes,
       lastRebuiltAt: lastRebuiltAt ?? this.lastRebuiltAt,
       checkInsCount: checkInsCount ?? this.checkInsCount,
+      checkInsSinceLastRebuild:
+          checkInsSinceLastRebuild ?? this.checkInsSinceLastRebuild,
       tokenEstimate: tokenEstimate ?? this.tokenEstimate,
     );
   }
@@ -49,6 +63,7 @@ class AiContext {
           ? null
           : Timestamp.fromDate(lastRebuiltAt!),
       'checkInsCount': checkInsCount,
+      'checkInsSinceLastRebuild': checkInsSinceLastRebuild,
       'tokenEstimate': tokenEstimate,
     };
   }
@@ -60,6 +75,8 @@ class AiContext {
       themes: (data['themes'] as List?)?.cast<String>() ?? const <String>[],
       lastRebuiltAt: ts is Timestamp ? ts.toDate() : null,
       checkInsCount: (data['checkInsCount'] as num?)?.toInt() ?? 0,
+      checkInsSinceLastRebuild:
+          (data['checkInsSinceLastRebuild'] as num?)?.toInt() ?? 0,
       tokenEstimate: (data['tokenEstimate'] as num?)?.toInt() ?? 0,
     );
   }

@@ -7,6 +7,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:no_enemies/models/ai_context.dart';
 import 'package:no_enemies/models/check_in.dart';
 import 'package:no_enemies/models/conflict_type.dart';
 import 'package:no_enemies/models/journal_entry.dart';
@@ -167,6 +168,78 @@ void main() {
         content: '   ',
       );
       expect(entry.wordCount, 0);
+    });
+  });
+
+  group('AiContext rebuild counter', () {
+    test('defaults checkInsSinceLastRebuild to 0', () {
+      expect(AiContext.empty.checkInsSinceLastRebuild, 0);
+      expect(const AiContext().checkInsSinceLastRebuild, 0);
+    });
+
+    test('copyWith bumps checkInsSinceLastRebuild without touching other fields',
+        () {
+      final ctx = AiContext(
+        summary: 'Two weeks in, trending calmer.',
+        themes: const ['self-compassion'],
+        lastRebuiltAt: DateTime(2026, 4, 10),
+        checkInsCount: 14,
+        checkInsSinceLastRebuild: 3,
+        tokenEstimate: 180,
+      );
+      final bumped = ctx.copyWith(checkInsSinceLastRebuild: 4);
+      expect(bumped.checkInsSinceLastRebuild, 4);
+      expect(bumped.summary, ctx.summary);
+      expect(bumped.themes, ctx.themes);
+      expect(bumped.lastRebuiltAt, ctx.lastRebuiltAt);
+      expect(bumped.checkInsCount, ctx.checkInsCount);
+      expect(bumped.tokenEstimate, ctx.tokenEstimate);
+    });
+
+    test('checkInsSinceLastRebuild survives Firestore round-trip', () {
+      final ctx = AiContext(
+        summary: 'Summary',
+        themes: const ['a', 'b'],
+        lastRebuiltAt: DateTime(2026, 4, 17, 7, 30),
+        checkInsCount: 20,
+        checkInsSinceLastRebuild: 7,
+        tokenEstimate: 150,
+      );
+      final map = ctx.toFirestore();
+      expect(map['checkInsSinceLastRebuild'], 7);
+      final decoded = AiContext.fromFirestore(map);
+      expect(decoded.checkInsSinceLastRebuild, 7);
+      expect(decoded.checkInsCount, 20);
+      expect(decoded.summary, ctx.summary);
+    });
+
+    test('fromFirestore tolerates missing checkInsSinceLastRebuild (migration)',
+        () {
+      // Docs written before the counter field existed must decode with 0.
+      final map = <String, dynamic>{
+        'summary': 'legacy',
+        'themes': <String>[],
+        'lastRebuiltAt': null,
+        'checkInsCount': 10,
+        'tokenEstimate': 100,
+      };
+      final decoded = AiContext.fromFirestore(map);
+      expect(decoded.checkInsSinceLastRebuild, 0);
+      expect(decoded.summary, 'legacy');
+    });
+
+    test('a freshly rebuilt AiContext resets checkInsSinceLastRebuild to 0', () {
+      // Mirrors what AiMentorService.rebuildContext does: constructs a new
+      // AiContext without passing checkInsSinceLastRebuild, so it must default
+      // to 0. Guards against accidentally threading the bumped counter through.
+      final rebuilt = AiContext(
+        summary: 'new',
+        themes: const [],
+        lastRebuiltAt: DateTime(2026, 4, 17),
+        checkInsCount: 20,
+        tokenEstimate: 120,
+      );
+      expect(rebuilt.checkInsSinceLastRebuild, 0);
     });
   });
 }
