@@ -15,10 +15,19 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 class AuthService {
   AuthService({FirebaseAuth? firebaseAuth, GoogleSignIn? googleSignIn})
       : _auth = firebaseAuth ?? FirebaseAuth.instance,
-        _googleSignIn = googleSignIn ?? GoogleSignIn();
+        _googleSignIn = googleSignIn ?? GoogleSignIn.instance;
 
   final FirebaseAuth _auth;
   final GoogleSignIn _googleSignIn;
+
+  // google_sign_in 7.x requires an explicit one-time initialize() before any
+  // authenticate() / signOut() call. We guard with a future so concurrent
+  // callers all wait on the same init.
+  Future<void>? _googleInitFuture;
+
+  Future<void> _ensureGoogleInitialized() {
+    return _googleInitFuture ??= _googleSignIn.initialize();
+  }
 
   /// Currently signed-in user, or `null` if signed out.
   User? get currentUser => _auth.currentUser;
@@ -85,20 +94,42 @@ class AuthService {
   /// user cancelled the picker (we rethrow as an exception so callers can
   /// show a consistent error UI).
   Future<User> signInWithGoogle() async {
-    // Make sure any previous Google session is cleared.
-    await _googleSignIn.signOut();
+    // google_sign_in 7.x: initialize-once singleton, then authenticate().
+    await _ensureGoogleInitialized();
 
-    final googleUser = await _googleSignIn.signIn();
-    if (googleUser == null) {
+    // Clear any previous Google session so the picker always appears.
+    try {
+      await _googleSignIn.signOut();
+    } catch (_) {
+      // Ignore — no prior session.
+    }
+
+    if (!_googleSignIn.supportsAuthenticate()) {
       throw FirebaseAuthException(
-        code: 'sign-in-cancelled',
-        message: 'Google sign-in was cancelled.',
+        code: 'google-sign-in-unsupported',
+        message: 'Google Sign-In is not supported on this platform.',
       );
     }
 
-    final googleAuth = await googleUser.authentication;
+    final GoogleSignInAccount googleUser;
+    try {
+      googleUser = await _googleSignIn.authenticate();
+    } on GoogleSignInException catch (e) {
+      // Surface user-cancellation as the same code the UI already handles.
+      if (e.code == GoogleSignInExceptionCode.canceled) {
+        throw FirebaseAuthException(
+          code: 'sign-in-cancelled',
+          message: 'Google sign-in was cancelled.',
+        );
+      }
+      rethrow;
+    }
+
+    final googleAuth = googleUser.authentication;
+    // v7 only exposes idToken on authentication (accessToken moved to the
+    // authorizationClient + scopes flow). The idToken is sufficient for
+    // Firebase Auth credential exchange.
     final credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
       idToken: googleAuth.idToken,
     );
 
@@ -167,7 +198,12 @@ class AuthService {
   /// Sign out of Firebase Auth AND any active social providers.
   Future<void> signOut() async {
     try {
-      await _googleSignIn.signOut();
+      // v7 requires initialize() before signOut(); only attempt if we've
+      // kicked the init off (i.e. the user has actually Google-auth'd).
+      if (_googleInitFuture != null) {
+        await _googleInitFuture;
+        await _googleSignIn.signOut();
+      }
     } catch (e) {
       // Google sign-out can fail silently if the user never Google-auth'd.
       if (kDebugMode) debugPrint('[AuthService] google signOut ignored: $e');
