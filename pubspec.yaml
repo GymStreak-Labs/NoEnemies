@@ -13,12 +13,12 @@ dependencies:
 
   cupertino_icons: ^1.0.8
   provider: ^6.1.5
-  go_router: ^14.8.1
-  google_fonts: ^6.2.1
+  go_router: ^17.2.1
+  google_fonts: ^8.0.2
   shared_preferences: ^2.5.3
   intl: ^0.20.2
   flutter_animate: ^4.5.2
-  smooth_page_indicator: ^1.2.0+3
+  smooth_page_indicator: ^2.0.1
   uuid: ^4.5.1
 
   # Used by AuthService for Apple Sign-In nonce hashing.
