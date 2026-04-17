@@ -15,8 +15,8 @@ A personal peace and conflict resolution journey app inspired by Vinland Saga's 
 - **State Management:** Provider
 - **Navigation:** go_router (with auth-aware redirect guard)
 - **Storage:** Cloud Firestore for all user-scoped data (profile, check-ins, journal). SharedPreferences for device-local flags only (onboarding complete, intro cinematic seen, last-seen title index, legacy migration guard).
-- **Auth:** Firebase Auth — Apple / Google / Email+Password (Phase 1A complete)
-- **AI:** Gemini 2.5 Flash via `firebase_ai` (Google AI / Gemini Developer API). Falls back to a hand-written Dart string library when the model is unreachable. See "AI Mentor (Phase 1C)" below.
+- **Auth:** Firebase Auth — Apple / Google / Email+Password (Phase 1A complete). Firebase iOS SDK 12.12 (Core 4.7, Auth 6.4, Firestore 6.3). `google_sign_in` 7.x singleton API (`GoogleSignIn.instance.initialize()` + `authenticate()`); user cancel is now a thrown `GoogleSignInException(code: canceled)` rather than a null return.
+- **AI:** Gemini 2.5 Flash via `firebase_ai` 3.11 (Google AI / Gemini Developer API backend). Firebase AI Logic is configured on the `noenemies-app` project (Firebase console → Build → AI Logic → Gemini Developer API). Falls back to a hand-written Dart string library when the model is unreachable. See "AI Mentor (Phase 1C)" below.
 - **Subscriptions:** UI-only paywall (RevenueCat in later phase)
 - **Typography:** Google Fonts (Inter)
 - **Animations:** flutter_animate
@@ -320,7 +320,10 @@ Every AI call is wrapped in `_safeGenerate`, which on exception OR empty respons
 - Firestore offline persistence is enabled in `main.dart` (`Settings(persistenceEnabled: true, cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED)`) so the UX doesn't regress vs SharedPrefs when the user is offline.
 - Legacy SharedPreferences data is migrated to Firestore on first post-upgrade sign-in via `StorageService.legacyProfile/legacyCheckIns/legacyJournalEntries` + `FirestoreRepository.migrateFromLegacy`. The guard `legacy_migrated_to_firestore` stops re-running. Legacy keys are cleared after a successful import.
 - `AiService` is now the **fallback** library — it returns pre-written Dart strings keyed by conflict type + mood. Used when `AiMentorService` can't reach Gemini. Do not delete it; do not rename it (callers reference it by type).
-- `AiMentorService` uses the `firebase_ai` package (NOT the deprecated `firebase_vertexai`). `firebase_ai` 3.11.x requires `firebase_core` 4.x, which would be a bigger migration — we're pinned at `firebase_ai: ^2.3.0` / `firebase_core: ^3.8.0`. That's still current-generation and supports Gemini 2.5 Flash via `FirebaseAI.googleAI()`. Upgrade to `firebase_core` 4.x is tracked in the Phase 2 TODO.
+- `AiMentorService` uses the `firebase_ai` package (NOT the deprecated `firebase_vertexai`). As of 2026-04-17 we're on `firebase_ai` 3.11 / `firebase_core` 4.7 / `firebase_auth` 6.4 / `cloud_firestore` 6.3 (Firebase iOS SDK 12.12). The full stack bump happened in one commit — see `chore/firebase-sdk-bump`.
+- `firebase_app_check` 0.4.x **renamed** the `androidProvider` / `appleProvider` params (enum) to `providerAndroid` / `providerApple` (concrete provider classes: `AndroidDebugProvider`, `AndroidPlayIntegrityProvider`, `AppleDebugProvider`, `AppleDeviceCheckProvider`). The enum versions still compile but emit a deprecation.
+- **Firebase AI Logic must be explicitly configured on the Firebase project** before any `firebase_ai` request succeeds. Not done → calls throw `FirebaseAIException` with `"Firebase AI Logic is missing a configured Gemini Developer API key"` or `"API has not been used in project XXX before"`. One-time setup: Firebase console → `noenemies-app` → Build → AI Logic → Get started → **Gemini Developer API** (left column; no Blaze needed) → Enable APIs → Continue. This provisions a Gemini API key into the project and flips the correct flags. Code-side: just `FirebaseAI.googleAI().generativeModel(model: 'gemini-2.5-flash', ...)` — no API key in our app.
+- `google_sign_in` 7.x breaking changes: `GoogleSignIn()` constructor removed (use `GoogleSignIn.instance`). Must call `initialize()` once before any auth. `signIn()` replaced with `authenticate()`. User cancellation is now a thrown `GoogleSignInException(code: GoogleSignInExceptionCode.canceled)` rather than a null return — `AuthService` remaps it to the existing `sign-in-cancelled` FirebaseAuth code so UI error handling is unchanged. `GoogleSignInAuthentication` now only exposes `idToken` (no `accessToken`); Firebase's `GoogleAuthProvider.credential(idToken: ...)` works fine with just the ID token.
 - App Check is activated client-side in `AiMentorService.init()` but enforcement is NOT turned on in the Firebase console. The client will silently ignore the absence of enforcement; when we flip the server-side switch at launch, the client is already ready.
 - `AiMentorService.init()` is wrapped in try/catch — if it fails (e.g. no Firebase app, model creation error), the service falls into "fallback-only" mode and everything else continues to work. Critical for test harness behaviour and offline dev.
 - AI rolling context (`users/{uid}/ai/context`) is rebuilt every 10 check-ins. The trigger is anchored to the persisted `AiContext.checkInsSinceLastRebuild` counter — NOT `_checkIns.length % 10` — because the 30-day windowed check-in stream saturates and any length-based modulo trigger would misfire on every new entry once the cap is reached.
@@ -376,7 +379,7 @@ Every AI call is wrapped in `_safeGenerate`, which on exception OR empty respons
 - Push notifications (morning + evening)
 - Multiple conflict types per user
 - Voice mentor (credits at `users/{uid}/credits/voiceMinutes` — Firestore slot reserved)
-- Upgrade `firebase_core` 3.x → 4.x so we can move to `firebase_ai` 3.11.x (currently pinned at 2.3.0 which is compatible with our `firebase_core ^3.8.0`)
+- ~~Upgrade `firebase_core` 3.x → 4.x~~ (done 2026-04-17 on `chore/firebase-sdk-bump` — full Firebase stack is on the current major versions; iOS Firebase SDK 12.12)
 
 ## Phase 1A Release Checklist (do before TestFlight)
 
