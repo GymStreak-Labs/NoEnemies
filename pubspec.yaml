@@ -1,0 +1,55 @@
+name: no_enemies
+description: "You've been fighting long enough. A personal peace and conflict resolution journey."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.5
+  go_router: ^14.8.1
+  google_fonts: ^6.2.1
+  shared_preferences: ^2.5.3
+  intl: ^0.20.2
+  flutter_animate: ^4.5.2
+  smooth_page_indicator: ^1.2.0+3
+  uuid: ^4.5.1
+
+  # Used by AuthService for Apple Sign-In nonce hashing.
+  crypto: ^3.0.6
+
+  # --- Firebase (Phase 1A: auth wired; Firestore + AI wired in later phases) ---
+  firebase_core: ^3.8.0
+  firebase_auth: ^5.3.3
+  sign_in_with_apple: ^6.1.4
+  google_sign_in: ^6.2.2
+  # Added now, used in Phase 1B / 1C
+  cloud_firestore: ^5.5.0
+  firebase_ai: ^2.0.0
+  firebase_app_check: ^0.3.2+3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  shaders:
+    - shaders/dissolve.frag
+  assets:
+    - assets/images/intro/
+    - assets/images/characters/
+    - assets/images/conflicts/
+    - assets/images/ui/
+    - assets/images/onboarding/
+    - assets/images/backgrounds/
+    - assets/images/runes/
+    - assets/images/voyage/

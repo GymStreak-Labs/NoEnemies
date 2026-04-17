@@ -13,12 +13,26 @@ A personal peace and conflict resolution journey app inspired by Vinland Saga's 
 
 - **Framework:** Flutter 3.41.4 / Dart 3.11.1
 - **State Management:** Provider
-- **Navigation:** go_router
-- **Storage:** SharedPreferences (local, MVP — no Firebase yet)
-- **AI:** Mock AiService (will be Claude/Gemini in Phase 2)
-- **Subscriptions:** UI-only paywall (RevenueCat in Phase 2)
+- **Navigation:** go_router (with auth-aware redirect guard)
+- **Storage:** SharedPreferences (local per-device journal/check-ins). Firebase Auth for identity (Phase 1A). Firestore data layer is Phase 1B.
+- **Auth:** Firebase Auth — Apple / Google / Email+Password (Phase 1A complete)
+- **AI:** Mock AiService (real Claude/Gemini in later phase)
+- **Subscriptions:** UI-only paywall (RevenueCat in later phase)
 - **Typography:** Google Fonts (Inter)
 - **Animations:** flutter_animate
+
+## Firebase Project
+
+- **Project ID:** `noenemies-app`
+- **Project Number:** `883331518653`
+- **iOS Bundle ID:** `com.gymstreaklabs.noEnemies`
+- **iOS App ID:** `1:883331518653:ios:2850990fe8dc2bc39627d4`
+- **Android Package:** `com.gymstreaklabs.no_enemies`
+- **Android App ID:** `1:883331518653:android:a7a2373643b81c929627d4`
+- **Auth providers enabled:** Email/Password, Google, Apple
+- **Config files:** `lib/firebase_options.dart` (generated), `ios/Runner/GoogleService-Info.plist`, `android/app/google-services.json`
+- **Debug SHA-1 (Android):** `05:0B:C8:9D:3C:30:9F:53:EC:78:76:97:0A:FB:AA:26:EC:07:A9:90` (registered)
+- **Plan:** Spark (free) — upgrade to Blaze if Identity Platform admin APIs are needed.
 
 ## Build & Run
 
@@ -28,7 +42,7 @@ flutter run
 # or flutter run -d <device_id>
 ```
 
-No Firebase, no API keys, no special environment setup needed for MVP.
+Firebase is wired — no extra env setup required. `Firebase.initializeApp` runs in `main.dart`. Running on simulator/device requires CocoaPods on iOS (`cd ios && pod install`) if not already installed.
 
 ## Project Structure
 
@@ -52,6 +66,7 @@ NoEnemies/
 │   │   └── journal_entry.dart     # Journal entry model
 │   ├── services/
 │   │   ├── storage_service.dart   # SharedPreferences wrapper
+│   │   ├── auth_service.dart      # Firebase Auth wrapper (Apple/Google/Email)
 │   │   └── ai_service.dart        # Mock AI prompts by conflict type
 │   ├── providers/
 │   │   ├── user_provider.dart     # User state, check-ins, journal
@@ -178,9 +193,9 @@ Chosen over generating 12 separate face-layer PNGs (4 stages × 3 emotions) beca
 
 ## Gotchas
 
-- Hard paywall: no free tier. Close button on paywall skips to app (MVP only).
+- Hard paywall: no free tier. Close button on paywall routes to `/auth` (auth is always required before entering app).
 - No monthly plan by design — force annual commitment or weekly trial.
-- SharedPreferences stores all data as JSON strings — no Firebase yet.
+- SharedPreferences stores all local data as JSON strings. Firebase Auth handles identity only (Phase 1A). Firestore data sync is Phase 1B.
 - AiService returns pre-written prompts keyed by conflict type + mood — not real AI.
 - go_router creates new router instance on every build via `AppRouter.router(userProvider)` — acceptable for MVP but should be cached in Phase 2.
 - Cinematic intro uses manual opacity stepping (not AnimationController) for text fade timing. Scene transitions use a 1.4s AnimationController with easeInOut curve driving the GLSL dissolve shader.
@@ -189,18 +204,40 @@ Chosen over generating 12 separate face-layer PNGs (4 stages × 3 emotions) beca
 - Onboarding is a single `/onboarding` route with 24 internal pages managed by a `PageView`. Paywall and auth are separate routes (`/paywall`, `/auth`).
 - `OnboardingData` model collects all answers during the flow. Profile is created when tapping "See Your Plan" on the celebration page, before navigating to `/paywall`.
 - Paywall screen at `/paywall` is a standalone GymLevels-style paywall with hero image, shimmer offer banner, annual/weekly pricing cards, benefit showcase, quick features, social proof, and fixed bottom CTA. UI-only for MVP.
-- Auth screen at `/auth` has Apple/Google/Email sign-in buttons. All are stubs for MVP — they just navigate to `/journey`. Email form is expandable with validation.
-- Paywall close (X) button skips auth and goes directly to `/journey` (MVP only — remove before App Store submission).
+- Auth screen at `/auth` uses real Firebase Auth via `AuthService`. Apple, Google, and Email+Password flows are all wired. Email form tries sign-in first, then falls back to sign-up on user-not-found/invalid-credential. Errors surface via `_friendlyError()` which maps FirebaseAuthException codes to user-readable strings. Loading overlay disables all buttons during network calls.
+- Paywall close (X) button routes to `/auth` — users must authenticate before entering the app. No skip-to-journey shortcut remains.
+- `AuthService` generates a SHA256-hashed nonce for Apple sign-in (required for Firebase ID token exchange). First-time Apple sign-in writes the given+family name into `FirebaseAuth.currentUser.displayName` (Apple only returns the name on first auth).
+- Router has an auth-aware redirect: unauthenticated users are forced to `/auth` for all app routes. Public routes: `/intro`, `/onboarding`, `/paywall`, `/auth`, `/debug`. The router uses `refreshListenable: _AuthStateListenable()` which wraps `FirebaseAuth.authStateChanges()` so sign-in/sign-out triggers immediate redirect re-evaluation. `_isSignedIn()` is wrapped in try/catch for safety when Firebase hasn't initialised.
+- Sign out lives in the You tab settings sheet (last item). Calls `AuthService.signOut()` then pushes `/auth`.
+- iOS 15.0 minimum (Firebase Auth requirement). Android minSdk is 23. Debug SHA-1 is registered with Firebase — Google Sign-In works on debug builds.
+- `Runner.entitlements` contains `com.apple.developer.applesignin`. Referenced via `CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements` in all three build configs (Debug/Release/Profile). Apple Sign-In capability must ALSO be enabled on the App ID in Apple Developer portal before TestFlight/App Store builds.
+- Google Sign-In URL scheme (`REVERSED_CLIENT_ID` from GoogleService-Info.plist) is registered in `ios/Runner/Info.plist` under `CFBundleURLTypes`.
 - `UserProfile` now has extra onboarding fields: `displayName`, `conflictTarget`, `conflictDuration`, `conflictIntensity`, `conflictStyle`, `preferredCheckInTime`, `personalIntention`, `previousAttempts`.
 - Processing screen (page 21) runs conflict type calculation and auto-advances after ~7s.
 - Reveal screen (page 22) runs a timed sequence showing content progressively. Back button is hidden on processing, reveal, and celebration pages.
 
+## Phase 1B TODO (next)
+
+- Firestore data layer swap — mirror SharedPreferences journal/check-ins to `users/{uid}/...` subcollections
+- User document auto-provisioning on first sign-in (copy onboarding answers from `UserProfile` into Firestore)
+- Security rules: user can only read/write their own data
+- Offline persistence (Firestore SDK offers this out of the box — opt in)
+
 ## Phase 2 TODO
 
-- Firebase Auth + Firestore backend
-- Real Claude/Gemini AI mentor integration
-- RevenueCat subscription integration
+- Real Claude/Gemini AI mentor integration via `firebase_ai`
+- RevenueCat subscription integration (hook paywall CTA up to real purchase flow)
+- App Check enforcement (currently added to pubspec but not initialised)
 - Weekly insight reports (card stack format)
 - Voyage Map with real data visualization
 - Push notifications (morning + evening)
 - Multiple conflict types per user
+
+## Phase 1A Release Checklist (do before TestFlight)
+
+- [ ] Enable "Sign In with Apple" capability on the App ID in Apple Developer portal
+- [ ] Register the **release** keystore SHA-1 (and SHA-256) with the Firebase Android app
+- [ ] Add release keystore SHA fingerprints to OAuth 2.0 client in Google Cloud Console
+- [ ] Decide on Blaze upgrade if Identity Platform admin APIs are needed
+- [ ] Configure Firebase Auth email templates (verification, password reset) with branded copy
+- [ ] Add `Firebase.initializeApp` error handling that fails loudly in release mode (currently silently swallows for dev convenience)

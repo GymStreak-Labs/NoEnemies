@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "883331518653",
+    "project_id": "noenemies-app",
+    "storage_bucket": "noenemies-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:883331518653:android:a7a2373643b81c929627d4",
+        "android_client_info": {
+          "package_name": "com.gymstreaklabs.no_enemies"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "883331518653-5a5nif5r7nemsj8en85prmu7p65u6uqk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.gymstreaklabs.no_enemies",
+            "certificate_hash": "050bc89d3c309f53ec7876970afbaa26ec07a990"
+          }
+        },
+        {
+          "client_id": "883331518653-jd17jam2lik7js3vtfuatultdf9d5v39.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD_3tZKLyKryRVdQaPDCv57x-yGBVfopuA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "883331518653-jd17jam2lik7js3vtfuatultdf9d5v39.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "883331518653-q5imq39jke8ffsonpc5l29v902kogmmi.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.gymstreaklabs.noEnemies"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

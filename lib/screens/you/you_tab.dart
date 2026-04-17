@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../providers/user_provider.dart';
 import '../../models/current_emotion.dart';
 import '../../models/user_profile.dart';
+import '../../services/auth_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/emotion_aura.dart';
 import '../../widgets/stage_particles.dart';
@@ -319,6 +320,17 @@ class YouTab extends StatelessWidget {
                     }
                   },
                 ),
+                const SizedBox(height: 8),
+                // Sign out — routes back to /auth.
+                _SettingsItem(
+                  icon: Icons.logout_rounded,
+                  title: 'Sign out',
+                  subtitle: 'Return to sign-in',
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await _handleSignOut(context);
+                  },
+                ),
                 const SizedBox(height: 16),
               ],
             ),
@@ -326,6 +338,18 @@ class YouTab extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _handleSignOut(BuildContext context) async {
+    final authService = context.read<AuthService>();
+    try {
+      await authService.signOut();
+    } catch (e) {
+      debugPrint('[YouTab] signOut failed: $e');
+    }
+    if (context.mounted) {
+      GoRouter.of(context).go('/auth');
+    }
   }
 }
 
