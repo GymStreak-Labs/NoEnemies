@@ -13,13 +13,14 @@ A personal peace and conflict resolution journey app inspired by Vinland Saga's 
 
 - **Framework:** Flutter 3.41.4 / Dart 3.11.1
 - **State Management:** Provider
-- **Navigation:** go_router (with auth-aware redirect guard)
+- **Navigation:** go_router 17.2.1 (with auth-aware redirect guard). 14→17 bump was a straight drop-in — the APIs we rely on (`GoRouter`, `GoRoute`, `ShellRoute`, `CustomTransitionPage`, `NoTransitionPage`, `refreshListenable`, `state.uri`, `state.pageKey`, `state.pathParameters`, `state.extra`, `GoRouter.of(context).go/pop/canPop`) are unchanged across 14/15/16/17.
 - **Storage:** Cloud Firestore for all user-scoped data (profile, check-ins, journal). SharedPreferences for device-local flags only (onboarding complete, intro cinematic seen, last-seen title index, legacy migration guard).
 - **Auth:** Firebase Auth — Apple / Google / Email+Password (Phase 1A complete). Firebase iOS SDK 12.12 (Core 4.7, Auth 6.4, Firestore 6.3). `google_sign_in` 7.x singleton API (`GoogleSignIn.instance.initialize()` + `authenticate()`); user cancel is now a thrown `GoogleSignInException(code: canceled)` rather than a null return.
 - **AI:** Gemini 2.5 Flash via `firebase_ai` 3.11 (Google AI / Gemini Developer API backend). Firebase AI Logic is configured on the `noenemies-app` project (Firebase console → Build → AI Logic → Gemini Developer API). Falls back to a hand-written Dart string library when the model is unreachable. See "AI Mentor (Phase 1C)" below.
 - **Subscriptions:** UI-only paywall (RevenueCat in later phase)
-- **Typography:** Google Fonts (Inter)
+- **Typography:** `google_fonts` 8.0.2 (Inter, Cinzel, Cormorant Garamond). 6→8 bump had no source-level impact on our callsites (`GoogleFonts.inter()`, `GoogleFonts.cinzel()`, `GoogleFonts.cormorantGaramond()` factories are stable).
 - **Animations:** flutter_animate
+- **Page indicator:** `smooth_page_indicator` 2.0.1 (currently declared but not imported — kept for onboarding polish work).
 
 ## Firebase Project
 
