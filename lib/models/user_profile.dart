@@ -1,4 +1,7 @@
 import 'dart:convert';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'conflict_type.dart';
 
 enum UserTitle {
@@ -196,15 +199,13 @@ class UserProfile {
               ?.map((e) => e as int)
               .toList() ??
           [],
-      createdAt: DateTime.parse(json['createdAt'] as String),
+      createdAt: _parseDate(json['createdAt']) ?? DateTime.now(),
       totalDaysOfPeace: json['totalDaysOfPeace'] as int? ?? 0,
       currentStreak: json['currentStreak'] as int? ?? 0,
       longestStreak: json['longestStreak'] as int? ?? 0,
       peaceDays: json['peaceDays'] as int? ?? 0,
       warDays: json['warDays'] as int? ?? 0,
-      lastCheckInDate: json['lastCheckInDate'] != null
-          ? DateTime.parse(json['lastCheckInDate'] as String)
-          : null,
+      lastCheckInDate: _parseDate(json['lastCheckInDate']),
       hasCompletedOnboarding: json['hasCompletedOnboarding'] as bool? ?? false,
       displayName: json['displayName'] as String?,
       conflictTarget: json['conflictTarget'] as String?,
@@ -220,8 +221,40 @@ class UserProfile {
     );
   }
 
+  /// Firestore-friendly map — uses [Timestamp] for dates so queries like
+  /// `orderBy('createdAt')` work as expected.
+  Map<String, dynamic> toFirestore() {
+    final map = <String, dynamic>{
+      ...toJson(),
+      'createdAt': Timestamp.fromDate(createdAt),
+      'lastCheckInDate':
+          lastCheckInDate == null ? null : Timestamp.fromDate(lastCheckInDate!),
+      'schemaVersion': 1,
+    };
+    return map;
+  }
+
+  /// Build a [UserProfile] from a Firestore document payload. Accepts both
+  /// [Timestamp] and ISO-8601 string dates so the same parser handles cloud
+  /// reads AND legacy SharedPreferences migration.
+  factory UserProfile.fromFirestore(Map<String, dynamic> json) {
+    return UserProfile.fromJson(json);
+  }
+
   String toJsonString() => jsonEncode(toJson());
 
   factory UserProfile.fromJsonString(String source) =>
       UserProfile.fromJson(jsonDecode(source) as Map<String, dynamic>);
+}
+
+/// Accepts Firestore [Timestamp], ISO-8601 [String], or [DateTime] and
+/// returns a [DateTime]. Returns null if the value is null/empty.
+DateTime? _parseDate(dynamic raw) {
+  if (raw == null) return null;
+  if (raw is Timestamp) return raw.toDate();
+  if (raw is DateTime) return raw;
+  if (raw is String && raw.isNotEmpty) {
+    return DateTime.tryParse(raw);
+  }
+  return null;
 }

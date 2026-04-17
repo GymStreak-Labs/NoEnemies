@@ -1,20 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
+
+import '../models/check_in.dart';
 import '../models/conflict_type.dart';
 import '../models/current_emotion.dart';
-import '../models/user_profile.dart';
-import '../models/check_in.dart';
 import '../models/journal_entry.dart';
+import '../models/user_profile.dart';
+import '../services/firestore_repository.dart';
 import '../services/storage_service.dart';
 
+/// Top-level user state — profile + check-ins + journal, backed by Firestore.
+///
+/// [StorageService] is kept around only for device-local flags that are NOT
+/// user-scoped (onboarding completed, last-seen title index, intro cinematic
+/// seen). All user content (profile, check-ins, journal) comes from Firestore.
+///
+/// The [FirestoreRepository] is nullable — it's only set once a user is
+/// authenticated. See [attachRepository]/[detachRepository], wired from the
+/// auth state listener in [main.dart].
 class UserProvider extends ChangeNotifier {
+  UserProvider(this._storage);
+
   final StorageService _storage;
+
+  FirestoreRepository? _repo;
+  FirestoreRepository? get repo => _repo;
 
   UserProfile? _profile;
   List<CheckIn> _checkIns = [];
   List<JournalEntry> _journalEntries = [];
 
-  UserProvider(this._storage);
+  StreamSubscription<UserProfile?>? _profileSub;
+  StreamSubscription<List<CheckIn>>? _checkInsSub;
+  StreamSubscription<List<JournalEntry>>? _journalSub;
 
   UserProfile? get profile => _profile;
   List<CheckIn> get checkIns => List.unmodifiable(_checkIns);
@@ -22,9 +42,12 @@ class UserProvider extends ChangeNotifier {
 
   bool get isOnboardingComplete => _storage.isOnboardingComplete;
   bool get hasProfile => _profile != null;
+  bool get hasRepository => _repo != null;
 
-  /// Returns the user's dominant mood across the last [days] days, or null if
-  /// they haven't checked in. Used to tint the character's aura on the You tab.
+  // ---------------------------------------------------------------------------
+  // Derived state (unchanged from SharedPreferences era).
+  // ---------------------------------------------------------------------------
+
   Mood? recentDominantMood({int days = 7}) {
     if (_checkIns.isEmpty) return null;
     final cutoff = DateTime.now().subtract(Duration(days: days));
@@ -37,13 +60,6 @@ class UserProvider extends ChangeNotifier {
     return counts.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
   }
 
-  /// Derives a 3-bucket emotion from the last [days] days of check-ins.
-  /// Returns [CurrentEmotion.calm] when there's no data, so the character
-  /// always has a sensible default. The classification uses the average
-  /// [Mood.peaceScore] across recent check-ins:
-  ///   avg >= 0.7 → joyful
-  ///   avg <= 0.35 → troubled
-  ///   else → calm
   CurrentEmotion currentEmotion({int days = 5}) {
     if (_checkIns.isEmpty) return CurrentEmotion.calm;
     final cutoff = DateTime.now().subtract(Duration(days: days));
@@ -56,17 +72,12 @@ class UserProvider extends ChangeNotifier {
     return CurrentEmotion.calm;
   }
 
-  /// Returns the previous title (if any) when the user has just unlocked a new
-  /// stage that hasn't been visually acknowledged yet. Returns null when no
-  /// new transition is pending.
   ({UserTitle from, UserTitle to})? pendingStageTransition() {
     final p = _profile;
     if (p == null) return null;
     final lastSeenIndex = _storage.lastSeenTitleIndex;
     final currentIndex = p.currentTitle.index;
-    // First-time view post-onboarding: seed lastSeen to current, no transition.
     if (lastSeenIndex < 0) {
-      // Fire-and-forget seed; doesn't trigger a transition.
       _storage.setLastSeenTitleIndex(currentIndex);
       return null;
     }
@@ -79,9 +90,6 @@ class UserProvider extends ChangeNotifier {
     return null;
   }
 
-  /// Mark the user's current title as visually acknowledged after the
-  /// cinematic plays. Call this when the user taps Continue on the
-  /// stage transition screen.
   Future<void> acknowledgeCurrentTitle() async {
     final p = _profile;
     if (p == null) return;
@@ -89,16 +97,125 @@ class UserProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Load all persisted data from storage.
-  Future<void> loadData() async {
-    _profile = _storage.getProfile();
-    _checkIns = _storage.getCheckIns();
-    _journalEntries = _storage.getJournalEntries();
+  /// Today's check-ins from the in-memory cache.
+  List<CheckIn> get todayCheckIns {
+    final now = DateTime.now();
+    return _checkIns.where((c) {
+      return c.date.year == now.year &&
+          c.date.month == now.month &&
+          c.date.day == now.day;
+    }).toList();
+  }
+
+  bool get hasMorningCheckInToday =>
+      todayCheckIns.any((c) => c.type == CheckInType.morning);
+
+  bool get hasEveningReflectionToday =>
+      todayCheckIns.any((c) => c.type == CheckInType.evening);
+
+  // ---------------------------------------------------------------------------
+  // Repository lifecycle — called from auth state listener.
+  // ---------------------------------------------------------------------------
+
+  /// Attach a Firestore repository (sign-in). Subscribes to profile,
+  /// check-ins, and journal streams so the UI reflects cloud state live.
+  ///
+  /// If [seedProfile] is provided AND the user has no Firestore profile yet,
+  /// the seed is written as the initial profile (first sign-in after
+  /// onboarding). This replaces the old "createProfile on celebration tap"
+  /// flow.
+  Future<void> attachRepository(
+    FirestoreRepository repo, {
+    UserProfile? seedProfile,
+  }) async {
+    // If we're swapping between users, clear first.
+    if (_repo != null && _repo!.uid != repo.uid) {
+      await _detachStreams();
+      _profile = null;
+      _checkIns = [];
+      _journalEntries = [];
+    }
+
+    _repo = repo;
+
+    // Check if cloud already has a profile. If not and we have a seed,
+    // write it as the initial profile.
+    final existing = await repo.loadProfile();
+    if (existing == null && seedProfile != null) {
+      final seeded = seedProfile.copyWith(
+        id: repo.uid,
+        hasCompletedOnboarding: true,
+      );
+      await repo.saveProfile(seeded);
+      _profile = seeded;
+    } else if (existing != null) {
+      _profile = existing;
+    }
+
+    // Subscribe to live updates after the initial seed (so we don't race).
+    await _subscribeStreams(repo);
     notifyListeners();
   }
 
-  /// Create a new user after completing onboarding quiz.
-  Future<void> createProfile({
+  /// Detach the repository (sign-out). Clears in-memory state.
+  Future<void> detachRepository() async {
+    await _detachStreams();
+    _repo = null;
+    _profile = null;
+    _checkIns = [];
+    _journalEntries = [];
+    notifyListeners();
+  }
+
+  Future<void> _subscribeStreams(FirestoreRepository repo) async {
+    await _detachStreams();
+    _profileSub = repo.streamProfile().listen((profile) {
+      _profile = profile;
+      notifyListeners();
+    }, onError: (Object e, StackTrace st) {
+      debugPrint('[UserProvider] profile stream error: $e');
+    });
+    _checkInsSub = repo.streamRecentCheckIns().listen((list) {
+      _checkIns = list;
+      notifyListeners();
+    }, onError: (Object e, StackTrace st) {
+      debugPrint('[UserProvider] checkIns stream error: $e');
+    });
+    _journalSub = repo.streamJournalEntries().listen((list) {
+      _journalEntries = list;
+      notifyListeners();
+    }, onError: (Object e, StackTrace st) {
+      debugPrint('[UserProvider] journal stream error: $e');
+    });
+  }
+
+  Future<void> _detachStreams() async {
+    await _profileSub?.cancel();
+    await _checkInsSub?.cancel();
+    await _journalSub?.cancel();
+    _profileSub = null;
+    _checkInsSub = null;
+    _journalSub = null;
+  }
+
+  @override
+  void dispose() {
+    _detachStreams();
+    super.dispose();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Onboarding / profile creation
+  // ---------------------------------------------------------------------------
+
+  /// Build a [UserProfile] from quiz answers WITHOUT writing it to Firestore.
+  /// The caller (onboarding flow) holds this in memory until the user
+  /// completes auth, then it's passed to [attachRepository] as a seed.
+  ///
+  /// Marks local `onboarding_complete` to `true` so the app treats the quiz
+  /// as done from this point forward. The profile itself only materializes
+  /// in Firestore once a Firebase user exists.
+  Future<UserProfile> buildOnboardingProfile({
     required ConflictType conflictType,
     required List<int> quizAnswers,
     String? displayName,
@@ -110,8 +227,8 @@ class UserProvider extends ChangeNotifier {
     String? personalIntention,
     List<String> previousAttempts = const [],
   }) async {
-    _profile = UserProfile(
-      id: const Uuid().v4(),
+    final profile = UserProfile(
+      id: const Uuid().v4(), // Replaced with Firebase uid on attach.
       primaryConflict: conflictType,
       quizAnswers: quizAnswers,
       createdAt: DateTime.now(),
@@ -125,32 +242,81 @@ class UserProvider extends ChangeNotifier {
       personalIntention: personalIntention,
       previousAttempts: previousAttempts,
     );
-    await _storage.saveProfile(_profile!);
+    _profile = profile;
     await _storage.setOnboardingComplete(true);
+
+    // If a repo is already attached (e.g. debug flows), write through.
+    final repo = _repo;
+    if (repo != null) {
+      await repo.saveProfile(profile.copyWith(id: repo.uid));
+    }
     notifyListeners();
+    return profile;
   }
 
-  /// Debug: override totalDaysOfPeace for stage simulation.
-  /// Also backdates createdAt so daysSinceStart reflects the simulation.
+  /// Back-compat wrapper — old code called `createProfile` and expected the
+  /// side effect of writing to storage + flipping `hasCompletedOnboarding`.
+  /// We keep the signature so existing onboarding screens don't break, but
+  /// under Firestore the "write" either goes to the repo (if attached) or
+  /// is deferred until auth completes.
+  Future<void> createProfile({
+    required ConflictType conflictType,
+    required List<int> quizAnswers,
+    String? displayName,
+    String? conflictTarget,
+    String? conflictDuration,
+    int conflictIntensity = 5,
+    String? conflictStyle,
+    String? preferredCheckInTime,
+    String? personalIntention,
+    List<String> previousAttempts = const [],
+  }) async {
+    await buildOnboardingProfile(
+      conflictType: conflictType,
+      quizAnswers: quizAnswers,
+      displayName: displayName,
+      conflictTarget: conflictTarget,
+      conflictDuration: conflictDuration,
+      conflictIntensity: conflictIntensity,
+      conflictStyle: conflictStyle,
+      preferredCheckInTime: preferredCheckInTime,
+      personalIntention: personalIntention,
+      previousAttempts: previousAttempts,
+    );
+  }
+
+  /// Debug: simulate stage progression.
   Future<void> debugSetPeaceDays(int days) async {
-    if (_profile == null) return;
-    _profile = _profile!.copyWith(
+    final p = _profile;
+    if (p == null) return;
+    _profile = p.copyWith(
       totalDaysOfPeace: days,
       currentStreak: days,
       longestStreak: days,
       peaceDays: days,
       createdAt: DateTime.now().subtract(Duration(days: days)),
     );
-    await _storage.saveProfile(_profile!);
+    final repo = _repo;
+    if (repo != null) {
+      await repo.saveProfile(_profile!);
+    }
     notifyListeners();
   }
 
-  /// Record a morning check-in.
+  // ---------------------------------------------------------------------------
+  // Check-ins
+  // ---------------------------------------------------------------------------
+
   Future<void> recordMorningCheckIn({
     required Mood mood,
     required String intention,
     String? aiPrompt,
   }) async {
+    final repo = _repo;
+    if (repo == null) {
+      debugPrint('[UserProvider] recordMorningCheckIn: no repo attached');
+      return;
+    }
     final checkIn = CheckIn(
       id: const Uuid().v4(),
       date: DateTime.now(),
@@ -161,20 +327,21 @@ class UserProvider extends ChangeNotifier {
       isPeaceful: mood.peaceScore >= 0.5,
     );
 
-    _checkIns.add(checkIn);
-    await _storage.saveCheckIns(_checkIns);
-
-    // Update streak and stats
+    await repo.saveCheckIn(checkIn);
     await _updateStats(checkIn);
-    notifyListeners();
+    // Streams update _checkIns; nothing else to do locally.
   }
 
-  /// Record an evening reflection.
   Future<void> recordEveningReflection({
     required Mood mood,
     required String reflectionAnswer,
     required List<DimensionRating> dimensions,
   }) async {
+    final repo = _repo;
+    if (repo == null) {
+      debugPrint('[UserProvider] recordEveningReflection: no repo attached');
+      return;
+    }
     final checkIn = CheckIn(
       id: const Uuid().v4(),
       date: DateTime.now(),
@@ -184,23 +351,21 @@ class UserProvider extends ChangeNotifier {
       dimensions: dimensions,
       isPeaceful: mood.peaceScore >= 0.5,
     );
-
-    _checkIns.add(checkIn);
-    await _storage.saveCheckIns(_checkIns);
-
+    await repo.saveCheckIn(checkIn);
     await _updateStats(checkIn);
-    notifyListeners();
   }
 
   Future<void> _updateStats(CheckIn checkIn) async {
-    if (_profile == null) return;
+    final p = _profile;
+    final repo = _repo;
+    if (p == null || repo == null) return;
 
     final isPeaceful = checkIn.isPeaceful;
-    var newPeaceDays = _profile!.peaceDays;
-    var newWarDays = _profile!.warDays;
-    var newTotalDays = _profile!.totalDaysOfPeace;
-    var newCurrentStreak = _profile!.currentStreak;
-    var newLongestStreak = _profile!.longestStreak;
+    var newPeaceDays = p.peaceDays;
+    var newWarDays = p.warDays;
+    var newTotalDays = p.totalDaysOfPeace;
+    var newCurrentStreak = p.currentStreak;
+    var newLongestStreak = p.longestStreak;
 
     if (isPeaceful) {
       newPeaceDays++;
@@ -211,12 +376,10 @@ class UserProvider extends ChangeNotifier {
       }
     } else {
       newWarDays++;
-      // Compassionate streak — don't fully reset, reduce by 1
-      // (minimum 0)
       newCurrentStreak = (newCurrentStreak - 1).clamp(0, newCurrentStreak);
     }
 
-    _profile = _profile!.copyWith(
+    final updated = p.copyWith(
       peaceDays: newPeaceDays,
       warDays: newWarDays,
       totalDaysOfPeace: newTotalDays,
@@ -224,68 +387,63 @@ class UserProvider extends ChangeNotifier {
       longestStreak: newLongestStreak,
       lastCheckInDate: DateTime.now(),
     );
-
-    await _storage.saveProfile(_profile!);
+    _profile = updated;
+    await repo.saveProfile(updated);
   }
 
-  // --- Journal ---
+  // ---------------------------------------------------------------------------
+  // Journal
+  // ---------------------------------------------------------------------------
 
   Future<void> addJournalEntry({
     required String title,
     required String content,
   }) async {
+    final repo = _repo;
+    if (repo == null) {
+      debugPrint('[UserProvider] addJournalEntry: no repo attached');
+      return;
+    }
     final entry = JournalEntry(
       id: const Uuid().v4(),
       date: DateTime.now(),
       title: title,
       content: content,
     );
-    _journalEntries.insert(0, entry);
-    await _storage.saveJournalEntries(_journalEntries);
-    notifyListeners();
+    await repo.saveJournalEntry(entry);
   }
 
   Future<void> updateJournalEntry(JournalEntry entry) async {
-    final index = _journalEntries.indexWhere((e) => e.id == entry.id);
-    if (index != -1) {
-      _journalEntries[index] = entry;
-      await _storage.saveJournalEntries(_journalEntries);
-      notifyListeners();
-    }
+    final repo = _repo;
+    if (repo == null) return;
+    await repo.saveJournalEntry(entry);
   }
 
   Future<void> deleteJournalEntry(String id) async {
-    _journalEntries.removeWhere((e) => e.id == id);
-    await _storage.saveJournalEntries(_journalEntries);
-    notifyListeners();
+    final repo = _repo;
+    if (repo == null) return;
+    await repo.deleteJournalEntry(id);
   }
 
   Future<void> toggleBookmark(String id) async {
+    final repo = _repo;
+    if (repo == null) return;
     final index = _journalEntries.indexWhere((e) => e.id == id);
-    if (index != -1) {
-      final entry = _journalEntries[index];
-      _journalEntries[index] =
-          entry.copyWith(isBookmarked: !entry.isBookmarked);
-      await _storage.saveJournalEntries(_journalEntries);
-      notifyListeners();
-    }
+    if (index == -1) return;
+    final entry = _journalEntries[index];
+    final updated = entry.copyWith(isBookmarked: !entry.isBookmarked);
+    await repo.saveJournalEntry(updated);
   }
 
-  /// Get today's check-ins.
-  List<CheckIn> get todayCheckIns {
-    final now = DateTime.now();
-    return _checkIns.where((c) {
-      return c.date.year == now.year &&
-          c.date.month == now.month &&
-          c.date.day == now.day;
-    }).toList();
-  }
+  // ---------------------------------------------------------------------------
+  // Legacy compatibility
+  // ---------------------------------------------------------------------------
 
-  bool get hasMorningCheckInToday {
-    return todayCheckIns.any((c) => c.type == CheckInType.morning);
-  }
-
-  bool get hasEveningReflectionToday {
-    return todayCheckIns.any((c) => c.type == CheckInType.evening);
+  /// Back-compat noop — callers used to call this to load from SharedPref.
+  /// Under Firestore, data loads via stream subscriptions triggered by
+  /// [attachRepository]. Kept so we don't have to audit every caller.
+  Future<void> loadData() async {
+    // Streams handle this now. Left as a no-op for backward compatibility.
+    return;
   }
 }

@@ -1,0 +1,22 @@
+rules_version = '2';
+
+// No Enemies — Firestore security rules
+//
+// Every user writes ONLY to their own tree under `users/{uid}/...`.
+// Everything else is denied. App Check will be enforced in a later phase.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // User's own tree: profile, checkIns, journal, ai context, credits, etc.
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // Recursive wildcard — required for subcollection access.
+      match /{document=**} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+
+    // Everything else: denied by default.
+  }
+}

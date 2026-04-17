@@ -12,7 +12,8 @@ import '../../widgets/ambient_particles.dart';
 /// Auth screen shown after paywall. Social auth prioritized, email expandable.
 ///
 /// Phase 1A: real Firebase Auth for Apple, Google, and Email.
-/// Phase 1B will insert profile load/create logic between sign-in and routing.
+/// Phase 1B: auth state listener in [main.dart] attaches a [FirestoreRepository]
+/// to [UserProvider] as soon as sign-in succeeds — no per-screen wiring needed.
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -44,7 +45,8 @@ class _AuthScreenState extends State<AuthScreen>
 
   void _navigateToJourney() {
     if (mounted) {
-      // Phase 1B will hook profile load/create here before routing.
+      // Profile attach + onboarding-seed write is handled by the auth state
+      // listener in [main.dart]; we just navigate on successful sign-in.
       context.go('/journey');
     }
   }

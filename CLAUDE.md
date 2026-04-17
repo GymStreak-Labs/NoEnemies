@@ -14,9 +14,9 @@ A personal peace and conflict resolution journey app inspired by Vinland Saga's 
 - **Framework:** Flutter 3.41.4 / Dart 3.11.1
 - **State Management:** Provider
 - **Navigation:** go_router (with auth-aware redirect guard)
-- **Storage:** SharedPreferences (local per-device journal/check-ins). Firebase Auth for identity (Phase 1A). Firestore data layer is Phase 1B.
+- **Storage:** Cloud Firestore for all user-scoped data (profile, check-ins, journal). SharedPreferences for device-local flags only (onboarding complete, intro cinematic seen, last-seen title index, legacy migration guard).
 - **Auth:** Firebase Auth — Apple / Google / Email+Password (Phase 1A complete)
-- **AI:** Mock AiService (real Claude/Gemini in later phase)
+- **AI:** Mock AiService (real Claude/Gemini mentor is Phase 1C — this phase 1B only moves the data layer)
 - **Subscriptions:** UI-only paywall (RevenueCat in later phase)
 - **Typography:** Google Fonts (Inter)
 - **Animations:** flutter_animate
@@ -33,6 +33,87 @@ A personal peace and conflict resolution journey app inspired by Vinland Saga's 
 - **Config files:** `lib/firebase_options.dart` (generated), `ios/Runner/GoogleService-Info.plist`, `android/app/google-services.json`
 - **Debug SHA-1 (Android):** `05:0B:C8:9D:3C:30:9F:53:EC:78:76:97:0A:FB:AA:26:EC:07:A9:90` (registered)
 - **Plan:** Spark (free) — upgrade to Blaze if Identity Platform admin APIs are needed.
+- **Firestore location:** `nam5` (multi-region US), native mode.
+- **Rules + indexes:** deployed from `firestore.rules` and `firestore.indexes.json` (composite index on `users/{uid}/journal` → `isBookmarked ASC, createdAt DESC`).
+
+## Firestore Schema
+
+Every user owns exactly one subtree, keyed by their Firebase `uid`. Security rules enforce that no user can touch another user's tree.
+
+```
+users/{uid}/
+├─ profile/main                (single doc — UserProfile)
+├─ checkIns/{yyyy-MM-dd}       (merged morning + evening per day)
+├─ journal/{entryId}           (one doc per journal entry)
+├─ ai/context                  (reserved for Phase 1C — rolling AI memory)
+└─ credits/voiceMinutes        (reserved — voice feature)
+```
+
+Example `profile/main`:
+```json
+{
+  "id": "<firebase-uid>",
+  "primaryConflict": 1,
+  "quizAnswers": [0, 1, 2, 1, 0, 2],
+  "createdAt": <Timestamp>,
+  "totalDaysOfPeace": 14,
+  "currentStreak": 7,
+  "peaceDays": 10, "warDays": 4,
+  "hasCompletedOnboarding": true,
+  "displayName": "Joe",
+  "personalIntention": "...",
+  "schemaVersion": 1
+}
+```
+
+Example `checkIns/2026-04-17` (both halves present):
+```json
+{
+  "date": "2026-04-17",
+  "dateTs": <Timestamp>,
+  "morning": { "id": "...", "mood": 2, "intention": "...", "timestamp": <Timestamp>, "isPeaceful": true },
+  "evening": { "id": "...", "mood": 3, "reflectionAnswer": "...", "dimensions": [...], "timestamp": <Timestamp>, "isPeaceful": true }
+}
+```
+
+Example `journal/{entryId}`:
+```json
+{
+  "id": "...", "title": "...", "content": "...",
+  "isBookmarked": false, "wordCount": 184,
+  "createdAt": <Timestamp>, "updatedAt": <Timestamp>
+}
+```
+
+### Cloud-synced vs device-local
+| Data | Lives in | Why |
+|---|---|---|
+| `UserProfile` | Firestore (`users/{uid}/profile/main`) | User identity + stats, follows user across devices |
+| Check-ins | Firestore (`users/{uid}/checkIns/{yyyy-MM-dd}`) | User content |
+| Journal entries | Firestore (`users/{uid}/journal/{entryId}`) | User content |
+| `intro_cinematic_seen` | SharedPreferences | Per-install UX flag — not tied to a user |
+| `onboarding_complete` | SharedPreferences | Pre-auth router gate — needs to work before sign-in |
+| `last_seen_title_index` | SharedPreferences | Per-device UX polish (skip cinematic on replay) |
+| `legacy_migrated_to_firestore` | SharedPreferences | One-shot guard for the SharedPrefs→Firestore import |
+
+### Security rules
+Summary: `request.auth.uid == uid` for any read/write under `users/{uid}/**`. Nothing else readable. Full file: [`firestore.rules`](firestore.rules). Recursive wildcard `match /{document=**}` is required for subcollection access.
+
+### Auth → repository → provider wiring
+
+All of this happens in [`lib/main.dart`](lib/main.dart):
+1. `Firebase.initializeApp` + `FirebaseFirestore.instance.settings = Settings(persistenceEnabled: true, cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED)` before `runApp`.
+2. Single global `FirebaseAuth.authStateChanges()` listener.
+3. **On sign-in:** construct `FirestoreRepository(uid: user.uid)`, then call `userProvider.attachRepository(repo, seedProfile: ...)`. The seed is whatever profile was built during onboarding (held in memory on `UserProvider`). If the cloud already has a profile, the seed is ignored.
+4. **Legacy migration (one-shot):** if SharedPreferences has pre-Firestore user data AND this install hasn't been migrated, bulk-write it via `repo.migrateFromLegacy(...)` before attaching streams. Sets `legacy_migrated_to_firestore = true` on success.
+5. **On sign-out:** call `userProvider.detachRepository()` — cancels streams, clears in-memory state.
+
+`UserProvider` subscribes to three live streams once attached: `streamProfile()`, `streamRecentCheckIns(days: 30)`, `streamJournalEntries(limit: 50)`. UI reads via the same public getters as before (`profile`, `checkIns`, `journalEntries`) — every consumer screen continues to work without changes.
+
+### Cost guardrails
+- Journal list is limited to 50 entries per stream (pagination TODO when users exceed this).
+- Check-ins stream is clamped to 30 days.
+- Firestore offline persistence is on, so reads come from cache when offline and hot reads are free after the first fetch.
 
 ## Build & Run
 
@@ -65,9 +146,10 @@ NoEnemies/
 │   │   ├── current_emotion.dart   # 3-bucket emotion (joyful/calm/troubled) driving the character aura
 │   │   └── journal_entry.dart     # Journal entry model
 │   ├── services/
-│   │   ├── storage_service.dart   # SharedPreferences wrapper
-│   │   ├── auth_service.dart      # Firebase Auth wrapper (Apple/Google/Email)
-│   │   └── ai_service.dart        # Mock AI prompts by conflict type
+│   │   ├── storage_service.dart         # SharedPreferences — device-local flags only post-1B
+│   │   ├── auth_service.dart            # Firebase Auth wrapper (Apple/Google/Email)
+│   │   ├── firestore_repository.dart    # Firestore data layer (profile, check-ins, journal)
+│   │   └── ai_service.dart              # Mock AI prompts by conflict type (replaced in Phase 1C)
 │   ├── providers/
 │   │   ├── user_provider.dart     # User state, check-ins, journal
 │   │   └── journey_provider.dart  # Peace missions, AI prompts
@@ -195,14 +277,18 @@ Chosen over generating 12 separate face-layer PNGs (4 stages × 3 emotions) beca
 
 - Hard paywall: no free tier. Close button on paywall routes to `/auth` (auth is always required before entering app).
 - No monthly plan by design — force annual commitment or weekly trial.
-- SharedPreferences stores all local data as JSON strings. Firebase Auth handles identity only (Phase 1A). Firestore data sync is Phase 1B.
+- All user-scoped data (profile, check-ins, journal) lives in Firestore under `users/{uid}/...`. SharedPreferences only holds device-local flags (onboarding complete, intro seen, last-seen title index, legacy migration guard). See the "Firestore Schema" section above.
+- `UserProvider` holds a nullable `FirestoreRepository`. It's attached by the auth state listener in `main.dart` on sign-in and detached on sign-out. Existing screens read via the same public getters (`profile`, `checkIns`, `journalEntries`) — the swap is transparent to the UI.
+- `createProfile(...)` is kept as a back-compat wrapper over `buildOnboardingProfile(...)`. It no longer writes to SharedPreferences — the profile is held in memory until sign-in, then the auth listener persists it via `repo.saveProfile(seed.copyWith(id: uid))`. The uuid `id` generated during onboarding is REPLACED by the Firebase `uid` on first persist.
+- Firestore offline persistence is enabled in `main.dart` (`Settings(persistenceEnabled: true, cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED)`) so the UX doesn't regress vs SharedPrefs when the user is offline.
+- Legacy SharedPreferences data is migrated to Firestore on first post-upgrade sign-in via `StorageService.legacyProfile/legacyCheckIns/legacyJournalEntries` + `FirestoreRepository.migrateFromLegacy`. The guard `legacy_migrated_to_firestore` stops re-running. Legacy keys are cleared after a successful import.
 - AiService returns pre-written prompts keyed by conflict type + mood — not real AI.
 - go_router creates new router instance on every build via `AppRouter.router(userProvider)` — acceptable for MVP but should be cached in Phase 2.
 - Cinematic intro uses manual opacity stepping (not AnimationController) for text fade timing. Scene transitions use a 1.4s AnimationController with easeInOut curve driving the GLSL dissolve shader.
 - Fragment shaders are registered under `flutter: shaders:` in pubspec.yaml (not `assets:`). The dissolve shader is loaded once via `DissolveShaderCache` and reused across all transitions.
 - `AppRouter.cinematicSeen` is set in `main.dart` before app runs — static field on the router class.
 - Onboarding is a single `/onboarding` route with 24 internal pages managed by a `PageView`. Paywall and auth are separate routes (`/paywall`, `/auth`).
-- `OnboardingData` model collects all answers during the flow. Profile is created when tapping "See Your Plan" on the celebration page, before navigating to `/paywall`.
+- `OnboardingData` model collects all answers during the flow. `UserProvider.createProfile(...)` is called on "See Your Plan" — this now builds the profile in memory and flips the local `onboarding_complete` flag, but the Firestore write only happens once the user signs in on `/auth`. The auth state listener in `main.dart` picks up the in-memory seed and writes it to `users/{uid}/profile/main` with `id` swapped to the Firebase `uid`.
 - Paywall screen at `/paywall` is a standalone GymLevels-style paywall with hero image, shimmer offer banner, annual/weekly pricing cards, benefit showcase, quick features, social proof, and fixed bottom CTA. UI-only for MVP.
 - Auth screen at `/auth` uses real Firebase Auth via `AuthService`. Apple, Google, and Email+Password flows are all wired. Email form tries sign-in first, then falls back to sign-up on user-not-found/invalid-credential. Errors surface via `_friendlyError()` which maps FirebaseAuthException codes to user-readable strings. Loading overlay disables all buttons during network calls.
 - Paywall close (X) button routes to `/auth` — users must authenticate before entering the app. No skip-to-journey shortcut remains.
@@ -216,12 +302,24 @@ Chosen over generating 12 separate face-layer PNGs (4 stages × 3 emotions) beca
 - Processing screen (page 21) runs conflict type calculation and auto-advances after ~7s.
 - Reveal screen (page 22) runs a timed sequence showing content progressively. Back button is hidden on processing, reveal, and celebration pages.
 
-## Phase 1B TODO (next)
+## Phase 1B (complete — 2026-04-17)
 
-- Firestore data layer swap — mirror SharedPreferences journal/check-ins to `users/{uid}/...` subcollections
-- User document auto-provisioning on first sign-in (copy onboarding answers from `UserProfile` into Firestore)
-- Security rules: user can only read/write their own data
-- Offline persistence (Firestore SDK offers this out of the box — opt in)
+- [x] Firestore data layer swap — profile, check-ins, journal move to `users/{uid}/...`
+- [x] `FirestoreRepository` in `lib/services/firestore_repository.dart` with live streams
+- [x] `UserProvider` rewired to attach/detach repo on sign-in/sign-out
+- [x] Security rules (`firestore.rules`) deployed to `noenemies-app`
+- [x] Indexes (`firestore.indexes.json`) deployed — composite `journal.isBookmarked + createdAt`
+- [x] Offline persistence enabled
+- [x] One-shot migration from SharedPreferences to Firestore on first post-upgrade sign-in
+- [x] JSON round-trip tests (`test/firestore_repository_test.dart`)
+
+## Phase 1C TODO (next — AI mentor)
+
+- Replace mock `AiService` with `AiMentorService` backed by `firebase_ai` + Gemini 2.5 Flash
+- Rolling `users/{uid}/ai/context` summary, rebuilt every ~10 check-ins
+- App Check (DeviceCheck on iOS, Play Integrity on Android) — required before the proxy is publicly hittable
+- Loading states in `MorningCheckInScreen`, `EveningReflectionScreen`, `JournalEntryScreen`
+- Fallback to the existing Dart string library on Gemini failures
 
 ## Phase 2 TODO
 

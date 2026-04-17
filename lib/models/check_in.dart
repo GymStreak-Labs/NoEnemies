@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 enum Mood {
   struggling,
   uneasy,
@@ -112,7 +114,7 @@ class CheckIn {
   factory CheckIn.fromJson(Map<String, dynamic> json) {
     return CheckIn(
       id: json['id'] as String,
-      date: DateTime.parse(json['date'] as String),
+      date: _parseCheckInDate(json['date']) ?? DateTime.now(),
       type: CheckInType.values[json['type'] as int],
       mood: Mood.values[json['mood'] as int],
       intention: json['intention'] as String?,
@@ -131,4 +133,51 @@ class CheckIn {
 
   factory CheckIn.fromJsonString(String source) =>
       CheckIn.fromJson(jsonDecode(source) as Map<String, dynamic>);
+
+  /// Firestore-friendly map for a single half (morning or evening) of a
+  /// daily check-in doc. Pair this with [CheckIn.fromFirestoreHalf].
+  Map<String, dynamic> toFirestoreHalf() {
+    return {
+      'id': id,
+      'mood': mood.index,
+      'intention': intention,
+      'reflectionAnswer': reflectionAnswer,
+      'dimensions': dimensions.map((d) => d.toJson()).toList(),
+      'aiPrompt': aiPrompt,
+      'isPeaceful': isPeaceful,
+      'timestamp': Timestamp.fromDate(date),
+    };
+  }
+
+  /// Rebuild a [CheckIn] from a Firestore "half" (morning or evening
+  /// sub-map) under `users/{uid}/checkIns/{yyyy-MM-dd}`.
+  factory CheckIn.fromFirestoreHalf(
+    Map<String, dynamic> json, {
+    required CheckInType type,
+    required DateTime fallbackDate,
+  }) {
+    return CheckIn(
+      id: json['id'] as String? ?? '',
+      date: _parseCheckInDate(json['timestamp']) ?? fallbackDate,
+      type: type,
+      mood: Mood.values[(json['mood'] as int?) ?? Mood.neutral.index],
+      intention: json['intention'] as String?,
+      reflectionAnswer: json['reflectionAnswer'] as String?,
+      dimensions: (json['dimensions'] as List<dynamic>?)
+              ?.map(
+                  (d) => DimensionRating.fromJson(d as Map<String, dynamic>))
+              .toList() ??
+          const [],
+      aiPrompt: json['aiPrompt'] as String?,
+      isPeaceful: json['isPeaceful'] as bool? ?? true,
+    );
+  }
+}
+
+DateTime? _parseCheckInDate(dynamic raw) {
+  if (raw == null) return null;
+  if (raw is Timestamp) return raw.toDate();
+  if (raw is DateTime) return raw;
+  if (raw is String && raw.isNotEmpty) return DateTime.tryParse(raw);
+  return null;
 }

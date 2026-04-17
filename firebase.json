@@ -1,1 +1,34 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"noenemies-app","appId":"1:883331518653:android:a7a2373643b81c929627d4","fileOutput":"android/app/google-services.json"}},"ios":{"default":{"projectId":"noenemies-app","appId":"1:883331518653:ios:2850990fe8dc2bc39627d4","uploadDebugSymbols":false,"fileOutput":"ios/Runner/GoogleService-Info.plist"}},"dart":{"lib/firebase_options.dart":{"projectId":"noenemies-app","configurations":{"android":"1:883331518653:android:a7a2373643b81c929627d4","ios":"1:883331518653:ios:2850990fe8dc2bc39627d4"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "noenemies-app",
+          "appId": "1:883331518653:android:a7a2373643b81c929627d4",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "noenemies-app",
+          "appId": "1:883331518653:ios:2850990fe8dc2bc39627d4",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "noenemies-app",
+          "configurations": {
+            "android": "1:883331518653:android:a7a2373643b81c929627d4",
+            "ios": "1:883331518653:ios:2850990fe8dc2bc39627d4"
+          }
+        }
+      }
+    }
+  }
+}
