@@ -27,6 +27,7 @@ class _AuthScreenState extends State<AuthScreen>
   final _scrollController = ScrollController();
 
   bool _showEmailForm = false;
+  bool _isSignUpMode = false; // false = sign in, true = create account
   bool _obscurePassword = true;
   bool _isLoading = false;
   String? _errorMessage;
@@ -157,27 +158,30 @@ class _AuthScreenState extends State<AuthScreen>
 
     setState(() => _isLoading = true);
 
+    // Explicit sign-in vs create-account mode. Do NOT auto-fallback — Firebase's
+    // current API returns `invalid-credential` for both wrong password and
+    // user-not-found (account enumeration protection), so an auto-signup
+    // fallback would trigger `email-already-in-use` when a returning user
+    // mistypes their password. Users pick the mode explicitly via the toggle.
     try {
-      // Try sign-in first; if the account doesn't exist, create it.
-      try {
+      if (_isSignUpMode) {
+        await _authService.signUpWithEmail(email: email, password: password);
+      } else {
         await _authService.signInWithEmail(email: email, password: password);
-      } on FirebaseAuthException catch (e) {
-        if (e.code == 'user-not-found' ||
-            e.code == 'invalid-credential' ||
-            e.code == 'invalid-login-credentials') {
-          await _authService.signUpWithEmail(
-            email: email,
-            password: password,
-          );
-        } else {
-          rethrow;
-        }
       }
       _navigateToJourney();
     } catch (e) {
       debugPrint('[AuthScreen] Email auth failed: $e');
       _showError(_friendlyError(e));
     }
+  }
+
+  void _toggleSignUpMode() {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _isSignUpMode = !_isSignUpMode;
+      _errorMessage = null;
+    });
   }
 
   @override
@@ -437,6 +441,58 @@ class _AuthScreenState extends State<AuthScreen>
     );
   }
 
+  // --- Mode Toggle (Sign in / Create account) ---
+
+  Widget _buildModeToggle() {
+    return Container(
+      height: 40,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: _modeToggleOption('Sign in', !_isSignUpMode)),
+          Expanded(child: _modeToggleOption('Create account', _isSignUpMode)),
+        ],
+      ),
+    );
+  }
+
+  Widget _modeToggleOption(String label, bool selected) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: selected ? null : _toggleSignUpMode,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        margin: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          gradient: selected
+              ? const LinearGradient(
+                  colors: [Color(0xFFD4A853), Color(0xFFE8C87A)],
+                )
+              : null,
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected
+                  ? const Color(0xFF0A0E1A)
+                  : AppColors.textSecondary,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   // --- Expandable Email Form ---
 
   Widget _buildEmailForm() {
@@ -446,6 +502,9 @@ class _AuthScreenState extends State<AuthScreen>
         padding: const EdgeInsets.only(top: 16),
         child: Column(
           children: [
+            // Sign in / Create account segmented toggle
+            _buildModeToggle(),
+            const SizedBox(height: 16),
             _buildTextField(
               controller: _emailController,
               hint: 'Email',
@@ -494,10 +553,10 @@ class _AuthScreenState extends State<AuthScreen>
                     ),
                   ],
                 ),
-                child: const Center(
+                child: Center(
                   child: Text(
-                    'Sign Up',
-                    style: TextStyle(
+                    _isSignUpMode ? 'Create Account' : 'Sign In',
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: Color(0xFF0A0E1A),
