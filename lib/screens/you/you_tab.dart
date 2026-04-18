@@ -306,7 +306,7 @@ class YouTab extends StatelessWidget {
                     title: 'Save audio with voice entries',
                     subtitle: storage.saveVoiceAudio
                         ? 'Your recordings are kept for replay'
-                        : 'Only the transcript is kept',
+                        : 'Spark mode: only the transcript is kept',
                     value: storage.saveVoiceAudio,
                     onChanged: (v) async {
                       await storage.setSaveVoiceAudio(v);

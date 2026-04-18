@@ -234,6 +234,7 @@ class _VoiceJournalEntryScreenState extends State<VoiceJournalEntryScreen>
 
     final shouldPersistAudio = widget.storage.saveVoiceAudio;
     final audioFile = _pendingAudioFile;
+    var audioPersistFailed = false;
 
     if (shouldPersistAudio && audioFile != null && await audioFile.exists()) {
       try {
@@ -242,6 +243,7 @@ class _VoiceJournalEntryScreenState extends State<VoiceJournalEntryScreen>
       } catch (e) {
         // Don't block the save — keep the transcript even if upload fails.
         // Most likely cause: Firebase Storage not yet enabled (Blaze).
+        audioPersistFailed = true;
         debugPrint('[VoiceJournalEntryScreen] audio upload failed: $e');
       }
     }
@@ -273,6 +275,13 @@ class _VoiceJournalEntryScreenState extends State<VoiceJournalEntryScreen>
 
     HapticFeedback.mediumImpact();
     if (!mounted) return;
+    if (audioPersistFailed) {
+      _showSnack(
+        'Saved as transcript only. Audio replay is not enabled on this build yet.',
+      );
+    } else if (!shouldPersistAudio && audioFile != null) {
+      _showSnack('Saved as transcript only.');
+    }
     context.pop();
   }
 

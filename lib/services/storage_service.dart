@@ -55,8 +55,12 @@ class StorageService {
 
   /// When true, voice journal entries upload their recorded audio to
   /// Firebase Storage so the user can replay them. When false, the transcript
-  /// is saved but the raw audio is discarded. Default: true (opt-out model).
-  bool get saveVoiceAudio => _prefs.getBool(_saveVoiceAudioKey) ?? true;
+  /// is saved but the raw audio is discarded.
+  ///
+  /// Default: false for the Spark-plan MVP, because Firebase Storage isn't
+  /// provisioned yet on `noenemies-app`. We can flip this back to true once
+  /// the project moves to Blaze and audio playback is live.
+  bool get saveVoiceAudio => _prefs.getBool(_saveVoiceAudioKey) ?? false;
 
   Future<void> setSaveVoiceAudio(bool value) async {
     await _prefs.setBool(_saveVoiceAudioKey, value);
