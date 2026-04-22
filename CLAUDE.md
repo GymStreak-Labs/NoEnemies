@@ -453,6 +453,41 @@ users/{uid}/audio/journal/{entryId}.wav
 - Voice mentor (credits at `users/{uid}/credits/voiceMinutes` — Firestore slot reserved)
 - ~~Upgrade `firebase_core` 3.x → 4.x~~ (done 2026-04-17 on `chore/firebase-sdk-bump` — full Firebase stack is on the current major versions; iOS Firebase SDK 12.12)
 
+## Legal Compliance (App Store 5.1.1 + 3.1.2 + 5.1.1(v) / Play equivalent)
+
+Landed on `legal-compliance` (2026-04-22). Closes the App Store review gaps that the ASC Privacy URL field alone cannot satisfy.
+
+**Hosted documents (AppStore Copilot — slug shared iOS+Android):**
+- Privacy Policy: `https://appstorecopilot.com/legal/8inqwejl/privacy`
+- Terms of Use: `https://appstorecopilot.com/legal/8inqwejl/terms`
+- Single source of truth in code: [`lib/services/legal_urls.dart`](lib/services/legal_urls.dart). Update there + in `update_legal_document` / `push_legal_to_appstore` to keep everything aligned.
+
+**In-app access points (Guideline 5.1.1):**
+- *Paywall footer* — `Terms · Privacy · Restore` text buttons at the bottom of [`lib/screens/paywall/paywall_screen.dart`](lib/screens/paywall/paywall_screen.dart). `Terms` + `Privacy` call `_openLegalUrl` → `launchUrl(LaunchMode.externalApplication)`.
+- *You-tab settings sheet* — `Privacy Policy` + `Terms of Use` rows above Sign out. Same `url_launcher` flow in `_openLegalUrl`.
+- External-browser launch is intentional: keeps the dark paywall/tab context intact and matches iOS/Android convention for legal links.
+
+**Account deletion (Guideline 5.1.1(v) — mandatory since Jun 2022):**
+Flow: *You tab → Settings → Delete account* (red row, below Sign out).
+1. Confirmation dialog with destructive "Delete forever" action.
+2. `UserProvider.wipeAllUserDataAndDetach()` cancels streams, calls `FirestoreRepository.deleteAllUserData()` — batches all `users/{uid}/**` Firestore docs in chunks of 400, then recursively deletes `users/{uid}/audio/journal/*.wav` in Firebase Storage. Storage recursion gracefully no-ops when the bucket isn't provisioned (Spark plan).
+3. `AuthService.deleteAccount()` clears the Google session (if any) and calls `FirebaseAuth.currentUser.delete()`.
+4. Routes to `/auth`.
+5. `requires-recent-login` is surfaced as a friendly "sign out, sign back in, try again" message — Firestore is already wiped at that point, and the wipe is idempotent, so the retry is safe.
+
+**Store description footers:** Both the iOS description and Play full description now end with hosted PP + ToU URLs (required for Apple 3.1.2 subscription apps; harmless on Play).
+
+**Dependency added:** `url_launcher: ^6.3.1` in `pubspec.yaml`.
+
+**Compliance tool quirks (AppStore Copilot `check_metadata_compliance`):**
+- Stale-read bug on iOS — `legalStatus.privacyPolicy.exists` reports `false` even when `read_legal_documents` and `asc localizations list` both confirm the URL is set. Bug is client-side in the tool, not a real rejection risk.
+- False-positive on `2.3 External URLs in description` for subscription apps — Apple 3.1.2 explicitly requires the EULA/PP URLs in the description footer. Ignore.
+
+**What still needs doing before submission (NOT in this branch):**
+- Select "Standard Apple License Agreement" on ASC App Information (or host a custom EULA and push via a future `push_legal_to_appstore` EULA slot).
+- Verify the dedicated Play Console Privacy Policy URL slot is populated (Copilot MCP doesn't currently expose a `push_privacy_url_to_play` tool).
+- Complete the App Privacy questionnaire in ASC (email, UUID, journal content, voice audio, purchase records).
+
 ## Phase 1A Release Checklist (do before TestFlight)
 
 - [ ] Enable "Sign In with Apple" capability on the App ID in Apple Developer portal
@@ -461,3 +496,6 @@ users/{uid}/audio/journal/{entryId}.wav
 - [ ] Decide on Blaze upgrade if Identity Platform admin APIs are needed
 - [ ] Configure Firebase Auth email templates (verification, password reset) with branded copy
 - [ ] Add `Firebase.initializeApp` error handling that fails loudly in release mode (currently silently swallows for dev convenience)
+- [ ] ASC: select "Standard Apple License Agreement" on App Information (Guideline 3.1.2)
+- [ ] ASC: complete App Privacy questionnaire for all data types collected
+- [ ] Play Console: set dedicated Privacy Policy URL field on Store Listing

@@ -192,6 +192,46 @@ class UserProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// App Store Guideline 5.1.1(v) / Play equivalent: wipe all user-owned data
+  /// and delete the Firebase Auth user.
+  ///
+  /// Order matters:
+  ///   1. Cancel streams so incoming snapshots don't re-materialise state
+  ///      mid-delete.
+  ///   2. Wipe Firestore + Storage via [FirestoreRepository.deleteAllUserData].
+  ///   3. Clear local in-memory caches.
+  ///   4. Return the [FirestoreRepository] reference so the caller can then
+  ///      invoke `AuthService.deleteAccount()` with its dependencies still
+  ///      available.
+  ///
+  /// Local SharedPreferences flags (intro seen, onboarding complete) are NOT
+  /// wiped here — they're per-install UX flags, not user-scoped data. If
+  /// another account signs in on the same device, their state is still
+  /// repopulated from Firestore on attach.
+  ///
+  /// Throws if no repository is attached. Propagates Firestore / Storage
+  /// failures so the UI can surface an error — we'd rather the user retry
+  /// than leave them in a half-deleted state.
+  Future<void> wipeAllUserDataAndDetach() async {
+    final repo = _repo;
+    if (repo == null) {
+      throw StateError(
+        'wipeAllUserDataAndDetach called with no repo attached',
+      );
+    }
+    await _detachStreams();
+    try {
+      await repo.deleteAllUserData();
+    } finally {
+      _repo = null;
+      _profile = null;
+      _checkIns = [];
+      _journalEntries = [];
+      _aiContext = AiContext.empty;
+      notifyListeners();
+    }
+  }
+
   Future<void> _subscribeStreams(FirestoreRepository repo) async {
     await _detachStreams();
     _profileSub = repo.streamProfile().listen((profile) {
