@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
@@ -23,10 +26,13 @@ class FirestoreRepository {
   FirestoreRepository({
     required this.uid,
     FirebaseFirestore? firestore,
-  }) : _db = firestore ?? FirebaseFirestore.instance;
+    FirebaseStorage? storage,
+  })  : _db = firestore ?? FirebaseFirestore.instance,
+        _storage = storage ?? FirebaseStorage.instance;
 
   final String uid;
   final FirebaseFirestore _db;
+  final FirebaseStorage _storage;
 
   static final DateFormat _dayIdFormat = DateFormat('yyyy-MM-dd');
 
@@ -201,6 +207,48 @@ class FirestoreRepository {
 
   Future<void> deleteJournalEntry(String id) async {
     await _journalCol.doc(id).delete();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Journal audio — Firebase Storage.
+  //
+  // Path scheme: `users/{uid}/audio/journal/{entryId}.wav` mirrors the
+  // Firestore tree so the storage rules can reuse the same uid-ownership check.
+  // ---------------------------------------------------------------------------
+
+  String audioStoragePath(String entryId) =>
+      'users/$uid/audio/journal/$entryId.wav';
+
+  /// Upload a recorded WAV to Firebase Storage. Returns the storage path,
+  /// which the caller should persist on the [JournalEntry]. The caller is
+  /// responsible for deleting the local temp file afterward.
+  Future<String> uploadJournalAudio(String entryId, File audioFile) async {
+    final path = audioStoragePath(entryId);
+    final ref = _storage.ref(path);
+    await ref.putFile(
+      audioFile,
+      SettableMetadata(contentType: 'audio/wav'),
+    );
+    return path;
+  }
+
+  /// Fetch a time-limited download URL for a stored clip so [just_audio] can
+  /// stream it. Callers should guard this with a try/catch — network failures
+  /// and deleted clips both surface as [FirebaseException].
+  Future<Uri> downloadJournalAudioUrl(String storagePath) async {
+    final ref = _storage.ref(storagePath);
+    final urlString = await ref.getDownloadURL();
+    return Uri.parse(urlString);
+  }
+
+  /// Remove a clip from Storage. Idempotent — ignores "object not found".
+  Future<void> deleteJournalAudio(String storagePath) async {
+    try {
+      await _storage.ref(storagePath).delete();
+    } on FirebaseException catch (e) {
+      if (e.code == 'object-not-found') return;
+      rethrow;
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ class StorageService {
   static const String _onboardingKey = 'onboarding_complete';
   static const String _lastSeenTitleKey = 'last_seen_title_index';
   static const String _legacyMigratedKey = 'legacy_migrated_to_firestore';
+  static const String _saveVoiceAudioKey = 'save_voice_audio';
 
   late final SharedPreferences _prefs;
 
@@ -48,6 +49,21 @@ class StorageService {
 
   Future<void> setLastSeenTitleIndex(int index) async {
     await _prefs.setInt(_lastSeenTitleKey, index);
+  }
+
+  // --- Voice journal settings (Phase 2) ---
+
+  /// When true, voice journal entries upload their recorded audio to
+  /// Firebase Storage so the user can replay them. When false, the transcript
+  /// is saved but the raw audio is discarded.
+  ///
+  /// Default: false for the Spark-plan MVP, because Firebase Storage isn't
+  /// provisioned yet on `noenemies-app`. We can flip this back to true once
+  /// the project moves to Blaze and audio playback is live.
+  bool get saveVoiceAudio => _prefs.getBool(_saveVoiceAudioKey) ?? false;
+
+  Future<void> setSaveVoiceAudio(bool value) async {
+    await _prefs.setBool(_saveVoiceAudioKey, value);
   }
 
   // --- Legacy migration guard ---

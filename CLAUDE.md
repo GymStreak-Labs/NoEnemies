@@ -152,7 +152,8 @@ NoEnemies/
 │   │   ├── auth_service.dart            # Firebase Auth wrapper (Apple/Google/Email)
 │   │   ├── firestore_repository.dart    # Firestore data layer (profile, check-ins, journal, ai/context)
 │   │   ├── ai_service.dart              # Dart string fallback library (formerly "mock AI")
-│   │   └── ai_mentor_service.dart       # Real Gemini 2.5 Flash mentor via firebase_ai (Phase 1C)
+│   │   ├── ai_mentor_service.dart       # Real Gemini 2.5 Flash mentor via firebase_ai (Phase 1C) + audio transcription (Phase 2)
+│   │   └── voice_recording_service.dart # Press-and-hold WAV recorder + amplitude stream (Phase 2)
 │   ├── providers/
 │   │   ├── user_provider.dart     # User state, check-ins, journal
 │   │   └── journey_provider.dart  # Peace missions, AI prompts
@@ -183,8 +184,9 @@ NoEnemies/
 │   │   ├── you/
 │   │   │   └── you_tab.dart             # Profile with animated glow + particles
 │   │   └── journal/
-│   │       ├── journal_screen.dart      # Journal list
-│   │       └── journal_entry_screen.dart # New/edit entry
+│   │       ├── journal_screen.dart             # Journal list (with mic entry point)
+│   │       ├── journal_entry_screen.dart       # New/edit entry + audio player bar
+│   │       └── voice_journal_entry_screen.dart # Phase 2 voice flow (press-and-hold)
 │   └── widgets/
 │       ├── ambient_particles.dart  # Reusable floating particle effect
 │       ├── stage_particles.dart    # Stage-specific ambient particles
@@ -195,6 +197,8 @@ NoEnemies/
 │       ├── mood_selector.dart
 │       ├── dimension_slider.dart
 │       ├── voyage_map.dart         # Parchment voyage map
+│       ├── recording_waveform.dart # Amplitude-driven waveform bars (Phase 2)
+│       ├── journal_audio_player.dart # Compact amber audio player for voice entries (Phase 2)
 │       └── today_card.dart
 ├── shaders/
 │   └── dissolve.frag              # GLSL fragment shader for scene transitions
@@ -371,6 +375,72 @@ Every AI call is wrapped in `_safeGenerate`, which on exception OR empty respons
 - [x] Guaranteed fallback to the Dart string library on any failure — users never see a broken prompt
 - [x] Unit tests for fallback behaviour (`test/ai_mentor_service_test.dart`)
 
+## Voice Journaling (Phase 2 MVP — complete 2026-04-17 on `voice-journal-mvp`)
+
+Press-and-hold voice journal entries that transcribe on-device via `firebase_ai` (Gemini 2.5 Flash) and persist as regular `JournalEntry` docs, with the original WAV optionally stored in Firebase Storage for playback.
+
+### UI flow
+1. User taps the mic icon in the journal header (next to the quill) → `/journal/voice` route opens `VoiceJournalEntryScreen`.
+2. Press-and-hold the mic → `record` captures WAV 16 kHz mono PCM16 to a temp file while a rolling waveform (`RecordingWaveform`) shows peak amplitudes every 100 ms. Hard cap at 3:00.
+3. Release → state moves to `transcribing`, `AiMentorService.transcribeAudio` sends the clip to Gemini 2.5 Flash as an `InlineDataPart('audio/wav', bytes)`.
+4. Transcript lands in an editable text field (title auto-derived from first sentence); user can tweak and hit Save entry.
+5. On save:
+   - `UserProvider.newJournalEntryId()` returns the entryId + pre-computed storage path.
+   - If `StorageService.saveVoiceAudio` is on AND Firebase Storage is reachable, `FirestoreRepository.uploadJournalAudio` pushes the WAV to `users/{uid}/audio/journal/{entryId}.wav`. Failures don't block the save — the transcript is always persisted.
+   - Entry is written to Firestore with `audioStoragePath` + `audioDurationSeconds` populated (or null if upload was skipped/failed).
+6. Journal list marks voice entries with a mic icon next to the word count.
+7. Opening a voice entry renders `JournalAudioPlayer` above the title (amber play/pause button, progress bar, `m:ss / m:ss` counter). Falls back gracefully to "Audio unavailable" if the URL can't be resolved.
+
+### Architecture
+- **`VoiceRecordingService`** (`lib/services/voice_recording_service.dart`) — `ChangeNotifier` state machine (`idle` → `recording` → `stopping` → `idle`). Owns an `AudioRecorder`, polls amplitude at 100 ms, auto-stops at 3:00, cleans temp files on cancel/dispose.
+- **`AiMentorService.transcribeAudio(File)`** — single-shot Gemini call with `thinkingBudget: 0` (transcription doesn't benefit from reasoning tokens). Returns `''` on any failure so the UI can show an error state rather than crashing.
+- **`FirestoreRepository.uploadJournalAudio / downloadJournalAudioUrl / deleteJournalAudio`** — thin wrapper over `FirebaseStorage`. Path scheme mirrors the Firestore tree so `storage.rules` can reuse the `request.auth.uid == uid` check.
+- **`JournalEntry.audioStoragePath` / `audioDurationSeconds`** — nullable, only serialised when present. Old text-only entries decode unchanged; `hasAudio` is a convenience getter.
+- **`UserProvider.newJournalEntryId()`** — helper so the voice screen can mint an ID, upload the audio, then save the entry with the correct storage path already populated.
+
+### Audio storage schema
+```
+users/{uid}/audio/journal/{entryId}.wav
+```
+- 16 kHz mono PCM16 WAV (Gemini-native — no re-encode needed before transcription)
+- `storage.rules` mirrors Firestore's uid-ownership rule (`request.auth.uid == uid`)
+- Firebase Storage requires the Blaze plan — **currently the project is on Spark**, so uploads fail silently and voice entries land as transcript-only. Flip to Blaze + `firebase deploy --only storage` to enable playback.
+
+### Settings toggle
+`You → Settings → Save audio with voice entries` (`StorageService.saveVoiceAudio`, default on). When off, the transcript is kept but the WAV is deleted after transcription completes.
+
+### Platform permissions
+- iOS: `NSMicrophoneUsageDescription` in `ios/Runner/Info.plist`.
+- Android: `android.permission.RECORD_AUDIO` in `android/app/src/main/AndroidManifest.xml`. `FOREGROUND_SERVICE_MICROPHONE` NOT declared — recording auto-stops on app backgrounding via `WidgetsBindingObserver`.
+
+### Gotchas
+- **Firebase Storage is not enabled on `noenemies-app` yet** (Spark plan limitation). Voice journaling works end-to-end without it — transcript saves, audio upload no-ops with a debugPrint. Flip to Blaze to unblock playback.
+- Amplitude is polled from `record`'s `getAmplitude()` in dBFS and normalised to [0..1] with a −60 dBFS floor. Silence below that reads as 0.
+- `WidgetsBindingObserver` in `VoiceJournalEntryScreen` cancels any in-flight recording when the app is backgrounded — prevents a rogue recorder holding the mic across lifecycle events.
+- Press-and-hold has a 500 ms tap-guard so accidental taps don't register as recordings.
+- The mentor reflection card on regular journal entries is NOT shown on voice entries by default — the voice flow already gave the user a chance to edit the transcript, which is its own form of reflection.
+
+### Files touched
+- `lib/services/voice_recording_service.dart` (new)
+- `lib/services/ai_mentor_service.dart` (+`transcribeAudio`)
+- `lib/services/firestore_repository.dart` (+audio upload/download/delete, Storage injection)
+- `lib/services/storage_service.dart` (+`saveVoiceAudio` toggle)
+- `lib/models/journal_entry.dart` (+audio fields, `clearAudio` copyWith flag)
+- `lib/providers/user_provider.dart` (+`newJournalEntryId`, audio-aware addJournalEntry/delete)
+- `lib/screens/journal/voice_journal_entry_screen.dart` (new)
+- `lib/screens/journal/journal_screen.dart` (mic button in header, mic icon on voice entries)
+- `lib/screens/journal/journal_entry_screen.dart` (audio player bar above title)
+- `lib/screens/you/you_tab.dart` (save-audio toggle)
+- `lib/widgets/recording_waveform.dart` (new)
+- `lib/widgets/journal_audio_player.dart` (new)
+- `lib/router/app_router.dart` (`/journal/voice` route)
+- `lib/main.dart` (expose `StorageService` + `AiMentorService` via Provider)
+- `pubspec.yaml` (+`firebase_storage`, `record`, `just_audio`, `permission_handler`, `path_provider`)
+- `ios/Runner/Info.plist` (+mic usage string)
+- `android/app/src/main/AndroidManifest.xml` (+RECORD_AUDIO permission)
+- `storage.rules` (new), `firebase.json` (storage block)
+- `test/firestore_repository_test.dart`, `test/ai_mentor_service_test.dart`, `test/voice_recording_service_test.dart`
+
 ## Phase 2 TODO
 
 - RevenueCat subscription integration (hook paywall CTA up to real purchase flow)
@@ -379,6 +449,7 @@ Every AI call is wrapped in `_safeGenerate`, which on exception OR empty respons
 - Voyage Map with real data visualization
 - Push notifications (morning + evening)
 - Multiple conflict types per user
+- **Blaze upgrade + `firebase deploy --only storage`** to unblock voice journal audio playback (transcript-only works today without it)
 - Voice mentor (credits at `users/{uid}/credits/voiceMinutes` — Firestore slot reserved)
 - ~~Upgrade `firebase_core` 3.x → 4.x~~ (done 2026-04-17 on `chore/firebase-sdk-bump` — full Firebase stack is on the current major versions; iOS Firebase SDK 12.12)
 

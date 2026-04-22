@@ -7,6 +7,7 @@ import '../../providers/user_provider.dart';
 import '../../models/current_emotion.dart';
 import '../../models/user_profile.dart';
 import '../../services/auth_service.dart';
+import '../../services/storage_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/emotion_aura.dart';
 import '../../widgets/stage_particles.dart';
@@ -266,76 +267,93 @@ class YouTab extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(2),
+        return StatefulBuilder(builder: (ctx, setSheetState) {
+          final storage = context.read<StorageService>();
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 24),
-                Text(
-                  'Settings',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 24),
-                _SettingsItem(
-                  icon: Icons.notifications_outlined,
-                  title: 'Notifications',
-                  subtitle: 'Coming soon',
-                ),
-                _SettingsItem(
-                  icon: Icons.palette_outlined,
-                  title: 'Appearance',
-                  subtitle: 'Coming soon',
-                ),
-                _SettingsItem(
-                  icon: Icons.help_outline,
-                  title: 'Help & Support',
-                  subtitle: 'Coming soon',
-                ),
-                _SettingsItem(
-                  icon: Icons.info_outline,
-                  title: 'About No Enemies',
-                  subtitle: 'Version 1.0.0',
-                ),
-                const SizedBox(height: 8),
-                // Debug: replay cinematic intro
-                _SettingsItem(
-                  icon: Icons.replay_outlined,
-                  title: 'Replay Intro',
-                  subtitle: 'Rewatch the cinematic opening',
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    await IntroCinematicScreen.resetSeen();
-                    if (context.mounted) {
-                      GoRouter.of(context).go('/intro');
-                    }
-                  },
-                ),
-                const SizedBox(height: 8),
-                // Sign out — routes back to /auth.
-                _SettingsItem(
-                  icon: Icons.logout_rounded,
-                  title: 'Sign out',
-                  subtitle: 'Return to sign-in',
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    await _handleSignOut(context);
-                  },
-                ),
-                const SizedBox(height: 16),
-              ],
+                  const SizedBox(height: 24),
+                  Text(
+                    'Settings',
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 24),
+                  _SettingsItem(
+                    icon: Icons.notifications_outlined,
+                    title: 'Notifications',
+                    subtitle: 'Coming soon',
+                  ),
+                  _SettingsItem(
+                    icon: Icons.palette_outlined,
+                    title: 'Appearance',
+                    subtitle: 'Coming soon',
+                  ),
+                  // Voice journaling — save audio alongside the transcript so
+                  // you can replay yourself later. Transcript is always kept.
+                  _SettingsToggle(
+                    icon: Icons.mic_none_rounded,
+                    title: 'Save audio with voice entries',
+                    subtitle: storage.saveVoiceAudio
+                        ? 'Your recordings are kept for replay'
+                        : 'Spark mode: only the transcript is kept',
+                    value: storage.saveVoiceAudio,
+                    onChanged: (v) async {
+                      await storage.setSaveVoiceAudio(v);
+                      setSheetState(() {});
+                    },
+                  ),
+                  _SettingsItem(
+                    icon: Icons.help_outline,
+                    title: 'Help & Support',
+                    subtitle: 'Coming soon',
+                  ),
+                  _SettingsItem(
+                    icon: Icons.info_outline,
+                    title: 'About No Enemies',
+                    subtitle: 'Version 1.0.0',
+                  ),
+                  const SizedBox(height: 8),
+                  // Debug: replay cinematic intro
+                  _SettingsItem(
+                    icon: Icons.replay_outlined,
+                    title: 'Replay Intro',
+                    subtitle: 'Rewatch the cinematic opening',
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await IntroCinematicScreen.resetSeen();
+                      if (context.mounted) {
+                        GoRouter.of(context).go('/intro');
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  // Sign out — routes back to /auth.
+                  _SettingsItem(
+                    icon: Icons.logout_rounded,
+                    title: 'Sign out',
+                    subtitle: 'Return to sign-in',
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _handleSignOut(context);
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
-          ),
-        );
+          );
+        });
       },
     );
   }
@@ -773,6 +791,44 @@ class _PeaceWarBar extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _SettingsToggle extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _SettingsToggle({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: AppColors.textSecondary),
+      title: Text(
+        title,
+        style: Theme.of(context).textTheme.titleMedium,
+      ),
+      subtitle: Text(
+        subtitle,
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      trailing: Switch.adaptive(
+        value: value,
+        activeThumbColor: AppColors.primary,
+        onChanged: onChanged,
+      ),
+      onTap: () => onChanged(!value),
     );
   }
 }

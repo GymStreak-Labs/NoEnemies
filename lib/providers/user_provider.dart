@@ -474,6 +474,8 @@ class UserProvider extends ChangeNotifier {
   Future<void> addJournalEntry({
     required String title,
     required String content,
+    String? audioStoragePath,
+    int? audioDurationSeconds,
   }) async {
     final repo = _repo;
     if (repo == null) {
@@ -485,7 +487,28 @@ class UserProvider extends ChangeNotifier {
       date: DateTime.now(),
       title: title,
       content: content,
+      audioStoragePath: audioStoragePath,
+      audioDurationSeconds: audioDurationSeconds,
     );
+    await repo.saveJournalEntry(entry);
+  }
+
+  /// Create a [JournalEntry] id up-front so the caller (voice entry screen)
+  /// can upload audio to the correct Storage path before the Firestore doc
+  /// exists. Returns both the id and the pre-built storage path.
+  ({String entryId, String storagePath}) newJournalEntryId() {
+    final id = const Uuid().v4();
+    final repo = _repo;
+    final path =
+        repo == null ? '' : repo.audioStoragePath(id);
+    return (entryId: id, storagePath: path);
+  }
+
+  /// Save an already-constructed entry (id + audio fields set). Used by the
+  /// voice entry flow so the provider doesn't need to know about temp files.
+  Future<void> saveJournalEntry(JournalEntry entry) async {
+    final repo = _repo;
+    if (repo == null) return;
     await repo.saveJournalEntry(entry);
   }
 
@@ -498,6 +521,18 @@ class UserProvider extends ChangeNotifier {
   Future<void> deleteJournalEntry(String id) async {
     final repo = _repo;
     if (repo == null) return;
+    // Find the entry first so we can clean up its audio clip (if any) before
+    // dropping the Firestore doc. Order matters: if Storage delete fails we'd
+    // rather retry via a re-delete than orphan the audio.
+    final entry = _journalEntries.where((e) => e.id == id).firstOrNull;
+    final audioPath = entry?.audioStoragePath;
+    if (audioPath != null && audioPath.isNotEmpty) {
+      try {
+        await repo.deleteJournalAudio(audioPath);
+      } catch (e, st) {
+        debugPrint('[UserProvider] delete audio failed (ignoring): $e\n$st');
+      }
+    }
     await repo.deleteJournalEntry(id);
   }
 

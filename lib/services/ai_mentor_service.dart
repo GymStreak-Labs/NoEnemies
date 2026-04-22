@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:firebase_ai/firebase_ai.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
@@ -254,6 +256,57 @@ wrote. No advice stacks.
       prompt,
       fallback: () => _fallback.getEveningQuestion(profile.primaryConflict),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Voice journaling (Phase 2) — audio transcription
+  // ---------------------------------------------------------------------------
+
+  /// Transcribe a voice journal recording. Returns the transcript text, or
+  /// empty string if the model is unavailable or the call fails. Never throws
+  /// — the voice UI falls back to a manual-edit empty state so the user can
+  /// still save an entry.
+  ///
+  /// Uses the same [GenerativeModel] as the mentor prompts (Gemini 2.5 Flash)
+  /// but overrides [GenerationConfig] per call: `thinkingBudget: 0` (cheap —
+  /// transcription doesn't benefit from reasoning tokens) and a much larger
+  /// `maxOutputTokens` than the mentor default. The shared model caps at 400
+  /// tokens which is fine for 1–3 sentence replies but would truncate a full
+  /// 3-minute transcript (~450 words ≈ 600 tokens). We lift the cap to 2000
+  /// so even a rambling 3-minute entry comes back whole.
+  Future<String> transcribeAudio(File audio) async {
+    final model = _activeModel;
+    if (model == null) {
+      debugPrint('[AiMentorService] transcribeAudio: no model, returning ""');
+      return '';
+    }
+    try {
+      final bytes = await audio.readAsBytes();
+      if (bytes.isEmpty) return '';
+      final res = await model.generateContent(
+        [
+          Content.multi([
+            TextPart(
+              'Transcribe this voice journal entry exactly as spoken. '
+              'Preserve pauses and fillers only when they carry meaning. '
+              'Return only the transcript, no preamble.',
+            ),
+            InlineDataPart('audio/wav', bytes),
+          ]),
+        ],
+        generationConfig: GenerationConfig(
+          temperature: 0.0,
+          maxOutputTokens: 2000,
+          thinkingConfig: ThinkingConfig.withThinkingBudget(0),
+        ),
+      );
+      final text = _extractText(res);
+      if (text == null) return '';
+      return text.trim();
+    } catch (e, st) {
+      debugPrint('[AiMentorService] transcribeAudio failed: $e\n$st');
+      return '';
+    }
   }
 
   // ---------------------------------------------------------------------------
