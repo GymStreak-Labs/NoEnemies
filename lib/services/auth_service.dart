@@ -212,6 +212,47 @@ class AuthService {
   }
 
   // ---------------------------------------------------------------------------
+  // Delete account — App Store Guideline 5.1.1(v) / Google Play equivalent
+  // ---------------------------------------------------------------------------
+
+  /// Permanently delete the current Firebase Auth user. Caller is responsible
+  /// for wiping user-scoped Firestore + Storage data BEFORE this call so that
+  /// no orphaned content remains if the delete succeeds.
+  ///
+  /// Throws [FirebaseAuthException] with code `requires-recent-login` if the
+  /// session is too old. Callers should surface a friendly "sign out and back
+  /// in, then try again" message in that case. The exception bubbles up so
+  /// the UI can distinguish it from other failure modes.
+  ///
+  /// Also clears any Google sign-in session so the next user of the device
+  /// starts from a clean slate.
+  Future<void> deleteAccount() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'no-current-user',
+        message: 'No signed-in user to delete.',
+      );
+    }
+
+    // Clear Google session first — it's non-fatal if this fails. Doing it
+    // before `user.delete()` means a successful delete always leaves the
+    // device in a clean state.
+    try {
+      if (_googleInitFuture != null) {
+        await _googleInitFuture;
+        await _googleSignIn.signOut();
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[AuthService] google signOut ignored: $e');
+    }
+
+    // This is the call that actually removes the Firebase user record.
+    // FirebaseAuth fires `authStateChanges` with null immediately after.
+    await user.delete();
+  }
+
+  // ---------------------------------------------------------------------------
   // Internal helpers
   // ---------------------------------------------------------------------------
 

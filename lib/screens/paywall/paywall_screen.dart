@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../services/legal_urls.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/ambient_particles.dart';
 
@@ -823,9 +825,7 @@ class _PaywallScreenState extends State<PaywallScreen>
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         TextButton(
-          onPressed: () {
-            // TODO: Open Terms URL
-          },
+          onPressed: () => _openLegalUrl(LegalUrls.termsOfUse),
           child: Text(
             'Terms',
             style: TextStyle(
@@ -841,9 +841,7 @@ class _PaywallScreenState extends State<PaywallScreen>
           ),
         ),
         TextButton(
-          onPressed: () {
-            // TODO: Open Privacy URL
-          },
+          onPressed: () => _openLegalUrl(LegalUrls.privacyPolicy),
           child: Text(
             'Privacy',
             style: TextStyle(
@@ -873,6 +871,32 @@ class _PaywallScreenState extends State<PaywallScreen>
         ),
       ],
     );
+  }
+
+  /// Open the hosted Privacy Policy or Terms of Use page in the user's
+  /// default browser (external application — keeps our dark paywall context
+  /// clean and honours platform conventions). Non-blocking: any failure is
+  /// surfaced via a snackbar so we don't crash the paywall.
+  Future<void> _openLegalUrl(String url) async {
+    final uri = Uri.parse(url);
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open $url')),
+        );
+      }
+    } catch (e) {
+      debugPrint('[PaywallScreen] _openLegalUrl failed for $url: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open the page')),
+        );
+      }
+    }
   }
 
   // ===========================================================

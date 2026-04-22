@@ -1,12 +1,15 @@
 import 'dart:math' as math;
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../providers/user_provider.dart';
 import '../../models/current_emotion.dart';
 import '../../models/user_profile.dart';
 import '../../services/auth_service.dart';
+import '../../services/legal_urls.dart';
 import '../../services/storage_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/emotion_aura.dart';
@@ -323,6 +326,27 @@ class YouTab extends StatelessWidget {
                     title: 'About No Enemies',
                     subtitle: 'Version 1.0.0',
                   ),
+                  // Legal — required for App Store Guideline 5.1.1 (privacy
+                  // policy accessible in-app) and 3.1.2 (subscription apps
+                  // must surface EULA + privacy policy).
+                  _SettingsItem(
+                    icon: Icons.privacy_tip_outlined,
+                    title: 'Privacy Policy',
+                    subtitle: 'How we handle your data',
+                    onTap: () => _openLegalUrl(
+                      context,
+                      LegalUrls.privacyPolicy,
+                    ),
+                  ),
+                  _SettingsItem(
+                    icon: Icons.description_outlined,
+                    title: 'Terms of Use',
+                    subtitle: 'The agreement between you and us',
+                    onTap: () => _openLegalUrl(
+                      context,
+                      LegalUrls.termsOfUse,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   // Debug: replay cinematic intro
                   _SettingsItem(
@@ -348,6 +372,18 @@ class YouTab extends StatelessWidget {
                       await _handleSignOut(context);
                     },
                   ),
+                  // Account deletion — App Store Guideline 5.1.1(v). This is
+                  // a hard requirement for any app with account creation.
+                  _SettingsItem(
+                    icon: Icons.delete_forever_outlined,
+                    title: 'Delete account',
+                    subtitle: 'Permanently erase your account and data',
+                    isDestructive: true,
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      await _handleDeleteAccount(context);
+                    },
+                  ),
                   const SizedBox(height: 16),
                 ],
               ),
@@ -368,6 +404,172 @@ class YouTab extends StatelessWidget {
     if (context.mounted) {
       GoRouter.of(context).go('/auth');
     }
+  }
+
+  /// Open a hosted legal document in the system browser. External launch
+  /// (not in-app webview) keeps the dark theme intact and matches platform
+  /// convention for legal links.
+  Future<void> _openLegalUrl(BuildContext context, String url) async {
+    final uri = Uri.parse(url);
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open the page')),
+        );
+      }
+    } catch (e) {
+      debugPrint('[YouTab] _openLegalUrl failed for $url: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open the page')),
+        );
+      }
+    }
+  }
+
+  /// App Store Guideline 5.1.1(v): account deletion must be offered in-app.
+  ///
+  /// Flow:
+  ///   1. Show a confirmation dialog that names the destructive action.
+  ///   2. On confirm, wipe Firestore + Storage via [UserProvider].
+  ///   3. Call [AuthService.deleteAccount] to remove the Firebase user.
+  ///   4. Route to `/auth` so sign-out state flushes through the auth
+  ///      listener in main.dart.
+  ///
+  /// Re-auth handling: if Firebase returns `requires-recent-login`, we
+  /// surface a friendly message asking the user to sign out, sign back in,
+  /// and retry. Firestore + Storage data has already been wiped at that
+  /// point, so retry is safe (wipeAllUserDataAndDetach is idempotent).
+  Future<void> _handleDeleteAccount(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF141925),
+          title: Text(
+            'Delete your account?',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          content: Text(
+            'This permanently erases your profile, check-ins, journal '
+            'entries, and voice recordings from every device. There is no '
+            'undo.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: AppColors.war),
+              onPressed: () => Navigator.of(dialogCtx).pop(true),
+              child: const Text('Delete forever'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final userProvider = context.read<UserProvider>();
+    final authService = context.read<AuthService>();
+    final messenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
+
+    // Non-dismissable progress indicator — the wipe can take a few seconds
+    // depending on how many Firestore docs + Storage blobs the user has.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _DeletingDialog(),
+    );
+
+    try {
+      await userProvider.wipeAllUserDataAndDetach();
+    } catch (e, st) {
+      debugPrint('[YouTab] wipe user data failed: $e\n$st');
+      if (context.mounted) Navigator.of(context).pop(); // close spinner
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not delete your data. Check your connection and try again.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await authService.deleteAccount();
+    } on FirebaseAuthException catch (e) {
+      debugPrint('[YouTab] deleteAccount failed: ${e.code} — ${e.message}');
+      if (context.mounted) Navigator.of(context).pop(); // close spinner
+      if (e.code == 'requires-recent-login') {
+        messenger.showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 6),
+            content: Text(
+              'For security, please sign out and sign back in, then delete '
+              'your account again.',
+            ),
+          ),
+        );
+        router.go('/auth');
+        return;
+      }
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not delete account: ${e.message}')),
+      );
+      return;
+    } catch (e, st) {
+      debugPrint('[YouTab] deleteAccount unexpected failure: $e\n$st');
+      if (context.mounted) Navigator.of(context).pop();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not delete account.')),
+      );
+      return;
+    }
+
+    if (context.mounted) Navigator.of(context).pop(); // close spinner
+    router.go('/auth');
+  }
+}
+
+/// Progress dialog shown during account deletion. Amber spinner + message so
+/// the user knows something is happening while we wipe Firestore + Storage.
+class _DeletingDialog extends StatelessWidget {
+  const _DeletingDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: const Color(0xFF141925),
+      content: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation(AppColors.primary),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Flexible(
+            child: Text(
+              'Deleting your account…',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -839,21 +1041,32 @@ class _SettingsItem extends StatelessWidget {
   final String subtitle;
   final VoidCallback? onTap;
 
+  /// When true, tints the icon + title with [AppColors.war] to signal the
+  /// action is destructive (Delete Account). Subtitle stays muted.
+  final bool isDestructive;
+
   const _SettingsItem({
     required this.icon,
     required this.title,
     required this.subtitle,
     this.onTap,
+    this.isDestructive = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final baseTitleStyle = Theme.of(context).textTheme.titleMedium;
+    final titleStyle = isDestructive
+        ? baseTitleStyle?.copyWith(color: AppColors.war)
+        : baseTitleStyle;
+    final iconColor = isDestructive ? AppColors.war : AppColors.textSecondary;
+
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: AppColors.textSecondary),
+      leading: Icon(icon, color: iconColor),
       title: Text(
         title,
-        style: Theme.of(context).textTheme.titleMedium,
+        style: titleStyle,
       ),
       subtitle: Text(
         subtitle,

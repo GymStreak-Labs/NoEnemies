@@ -281,6 +281,101 @@ class FirestoreRepository {
   // legacy SharedPreferences data is present).
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Account deletion — wipes the entire users/{uid}/** tree plus any Storage
+  // blobs we've written. Required for App Store Guideline 5.1.1(v).
+  // ---------------------------------------------------------------------------
+
+  /// Permanently delete every Firestore document and Storage object owned by
+  /// [uid]. Call BEFORE `FirebaseAuth.currentUser.delete()` so we don't orphan
+  /// content if the auth delete later fails.
+  ///
+  /// Covers:
+  /// - `users/{uid}/profile/main`
+  /// - `users/{uid}/checkIns/*`
+  /// - `users/{uid}/journal/*` (+ matching audio blobs in Storage)
+  /// - `users/{uid}/ai/context`
+  /// - `users/{uid}/credits/*` (reserved for voice mentor, may not exist)
+  /// - `users/{uid}/audio/journal/*` in Firebase Storage (catch-all for any
+  ///   blobs not referenced by a journal entry, e.g. upload-then-save-fail).
+  /// - `users/{uid}` itself
+  ///
+  /// Best-effort: a failed Storage recursion shouldn't block the Firestore
+  /// wipe, and a failed single doc delete shouldn't abort the rest.
+  /// Individual failures are logged.
+  Future<void> deleteAllUserData() async {
+    // ---- Firestore: collect all sub-doc ids per sub-collection, then batch
+    // delete in chunks. Batches are capped at 500 writes by Firestore.
+    Future<void> wipeCollection(CollectionReference<Map<String, dynamic>> col) async {
+      try {
+        final snap = await col.get();
+        const chunk = 400;
+        for (var i = 0; i < snap.docs.length; i += chunk) {
+          final batch = _db.batch();
+          for (final doc in snap.docs.skip(i).take(chunk)) {
+            batch.delete(doc.reference);
+          }
+          await batch.commit();
+        }
+      } catch (e, st) {
+        debugPrint('[FirestoreRepository] wipeCollection ${col.path} failed: $e\n$st');
+      }
+    }
+
+    // Capture audio paths BEFORE the journal wipe so we can clean up referenced
+    // blobs. Unreferenced blobs get cleaned up by the Storage recursion below.
+    final audioPaths = <String>[];
+    try {
+      final journalSnap = await _journalCol.get();
+      for (final d in journalSnap.docs) {
+        final path = d.data()['audioStoragePath'];
+        if (path is String && path.isNotEmpty) audioPaths.add(path);
+      }
+    } catch (e, st) {
+      debugPrint('[FirestoreRepository] collect audio paths failed: $e\n$st');
+    }
+
+    // Wipe sub-collections first, then top-level docs, then the user doc.
+    await wipeCollection(_checkInsCol);
+    await wipeCollection(_journalCol);
+    await wipeCollection(_userDoc.collection('profile'));
+    await wipeCollection(_userDoc.collection('ai'));
+    await wipeCollection(_userDoc.collection('credits'));
+
+    try {
+      await _userDoc.delete();
+    } catch (e, st) {
+      debugPrint('[FirestoreRepository] delete user doc failed: $e\n$st');
+    }
+
+    // ---- Storage: delete every referenced audio blob, then catch-all the
+    // audio folder in case of orphans. `listAll()` on a ref works even when
+    // the folder doesn't exist.
+    for (final path in audioPaths) {
+      await deleteJournalAudio(path);
+    }
+
+    try {
+      final audioFolder = _storage.ref('users/$uid/audio/journal');
+      final listResult = await audioFolder.listAll();
+      for (final item in listResult.items) {
+        try {
+          await item.delete();
+        } on FirebaseException catch (e) {
+          if (e.code != 'object-not-found') rethrow;
+        }
+      }
+    } on FirebaseException catch (e) {
+      // Storage not provisioned (Spark plan) → listAll returns an unauthorized
+      // error; treat as no-op because there's nothing stored anyway.
+      if (kDebugMode) {
+        debugPrint('[FirestoreRepository] storage recursion noop: ${e.code}');
+      }
+    } catch (e, st) {
+      debugPrint('[FirestoreRepository] storage recursion failed: $e\n$st');
+    }
+  }
+
   /// Write an entire initial snapshot from legacy SharedPreferences data in
   /// one batch. Safe to call more than once — uses `SetOptions(merge: true)`.
   Future<void> migrateFromLegacy({
