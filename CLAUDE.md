@@ -17,7 +17,7 @@ A personal peace and conflict resolution journey app inspired by Vinland Saga's 
 - **Storage:** Cloud Firestore for all user-scoped data (profile, check-ins, journal). SharedPreferences for device-local flags only (onboarding complete, intro cinematic seen, last-seen title index, legacy migration guard).
 - **Auth:** Firebase Auth — Apple / Google / Email+Password (Phase 1A complete). Firebase iOS SDK 12.12 (Core 4.7, Auth 6.4, Firestore 6.3). `google_sign_in` 7.x singleton API (`GoogleSignIn.instance.initialize()` + `authenticate()`); user cancel is now a thrown `GoogleSignInException(code: canceled)` rather than a null return.
 - **AI:** Gemini 2.5 Flash via `firebase_ai` 3.11 (Google AI / Gemini Developer API backend). Firebase AI Logic is configured on the `noenemies-app` project (Firebase console → Build → AI Logic → Gemini Developer API). Falls back to a hand-written Dart string library when the model is unreachable. See "AI Mentor (Phase 1C)" below.
-- **Subscriptions:** UI-only paywall (RevenueCat in later phase)
+- **Subscriptions:** RevenueCat via `purchases_flutter` 10.0.1. Hard paywall, no free tier. Entitlement `premium`; offerings `default` (`$rc_annual`, `$rc_weekly`) and `special_offer` (`special_annual`). See "Subscriptions / RevenueCat" below.
 - **Typography:** `google_fonts` 8.0.2 (Inter, Cinzel, Cormorant Garamond). 6→8 bump had no source-level impact on our callsites (`GoogleFonts.inter()`, `GoogleFonts.cinzel()`, `GoogleFonts.cormorantGaramond()` factories are stable).
 - **Animations:** flutter_animate
 - **Page indicator:** `smooth_page_indicator` 2.0.1 (currently declared but not imported — kept for onboarding polish work).
@@ -151,6 +151,7 @@ NoEnemies/
 │   │   ├── storage_service.dart         # SharedPreferences — device-local flags only post-1B
 │   │   ├── auth_service.dart            # Firebase Auth wrapper (Apple/Google/Email)
 │   │   ├── firestore_repository.dart    # Firestore data layer (profile, check-ins, journal, ai/context)
+│   │   ├── subscription_service.dart     # RevenueCat SDK config, offerings, purchase/restore, premium gate state
 │   │   ├── ai_service.dart              # Dart string fallback library (formerly "mock AI")
 │   │   ├── ai_mentor_service.dart       # Real Gemini 2.5 Flash mentor via firebase_ai (Phase 1C) + audio transcription (Phase 2)
 │   │   └── voice_recording_service.dart # Press-and-hold WAV recorder + amplitude stream (Phase 2)
@@ -301,6 +302,43 @@ Every AI call is wrapped in `_safeGenerate`, which on exception OR empty respons
 - `EveningReflectionScreen`: same pattern, but passes today's morning check-in (if any) so the question can reference the morning intention. Fallback question shows on failure.
 - `JournalEntryScreen`: journal reflection is OPT-IN — users tap "Ask the mentor" in the footer to trigger `_save(pop: false)` + `generateJournalReflection`. The reflection appears in a card below the entry with a mentor kicker and italic serif body. Non-blocking — users can exit without waiting.
 
+## Subscriptions / RevenueCat
+
+NoEnemies is premium-only. RevenueCat is configured in [`lib/services/subscription_service.dart`](lib/services/subscription_service.dart) and injected via Provider from [`lib/main.dart`](lib/main.dart).
+
+**RevenueCat project**
+- Project ID: `e1cbc9d7`
+- Credential file: `~/.mission-control/credentials/noenemies-revenuecat.env` (secret key stays local; never embed `sk_...` keys in the app)
+- iOS app: `app59ae701630`, bundle `com.gymstreaklabs.noEnemies`, public SDK key `appl_...`
+- Android app: `appfda3285758`, package `com.gymstreaklabs.no_enemies`, public SDK key `goog_...`
+
+**Catalog shape (mirrors GymLevels, without `default_notrial`)**
+- Entitlement: `premium` / Premium Access
+- Offering `default`: packages `$rc_annual` + `$rc_weekly`
+- Offering `special_offer`: package `special_annual`
+- `special_offer` metadata: `title=Special Offer`, `badge_text=BEST VALUE`, `countdown_seconds=900`
+- iOS products:
+  - `com.gymstreaklabs.noenemies.special_annual` ($29.99/year)
+  - `com.gymstreaklabs.noenemies.annual` ($59.99/year)
+  - `com.gymstreaklabs.noenemies.weekly` ($4.99/week)
+- Android products/base plans:
+  - `noenemies_pro:special-annual` ($29.99/year)
+  - `noenemies_pro:annual` ($59.99/year)
+  - `noenemies_pro:weekly` ($4.99/week)
+
+**App flow**
+1. RevenueCat is configured on boot with the platform public SDK key. Public RevenueCat SDK keys are safe to embed; secret keys are not.
+2. `/paywall` loads the live offerings. The annual card prefers `special_offer/special_annual` when present, falling back to `default/$rc_annual`.
+3. Purchase/restore uses `Purchases.purchase(PurchaseParams.package(...))` / `Purchases.restorePurchases()`.
+4. On Firebase sign-in, `SubscriptionService.logIn(uid)` aliases the anonymous RevenueCat subscriber to the Firebase uid so paywall-before-auth purchases transfer cleanly.
+5. `AppRouter` gates all in-app routes on the active `premium` entitlement after onboarding + auth. `/intro`, `/onboarding`, `/paywall`, `/auth`, and `/debug` remain public.
+6. Build-time escape hatch for internal screenshots only: `--dart-define=FORCE_PREMIUM=true`.
+
+**Apple / store-side config**
+- App Store Connect app ID: `6762665587`
+- RevenueCat App Store Connect API key + in-app purchase subscription key are configured.
+- Apple server notification URL has been added in App Store Connect (production + sandbox).
+
 ## UI/UX Design
 
 - **Cinematic Intro:** Plays once on first launch. 5-scene anime artwork sequence with GLSL shader dissolve transitions (procedural noise with amber edge glow). Skippable. Stored via SharedPreferences `intro_cinematic_seen`.
@@ -317,8 +355,8 @@ Every AI call is wrapped in `_safeGenerate`, which on exception OR empty respons
 
 ## Gotchas
 
-- Hard paywall: no free tier. Close button on paywall routes to `/auth` (auth is always required before entering app).
-- No monthly plan by design — force annual commitment or weekly trial.
+- Hard paywall: no free tier. Close button on paywall routes to `/auth`, but signed-in non-premium users are routed back to `/paywall` until RevenueCat's `premium` entitlement is active.
+- No monthly plan by design — force special annual / annual commitment or weekly trial.
 - All user-scoped data (profile, check-ins, journal) lives in Firestore under `users/{uid}/...`. SharedPreferences only holds device-local flags (onboarding complete, intro seen, last-seen title index, legacy migration guard). See the "Firestore Schema" section above.
 - `UserProvider` holds a nullable `FirestoreRepository`. It's attached by the auth state listener in `main.dart` on sign-in and detached on sign-out. Existing screens read via the same public getters (`profile`, `checkIns`, `journalEntries`) — the swap is transparent to the UI.
 - `createProfile(...)` is kept as a back-compat wrapper over `buildOnboardingProfile(...)`. It no longer writes to SharedPreferences — the profile is held in memory until sign-in, then the auth listener persists it via `repo.saveProfile(seed.copyWith(id: uid))`. The uuid `id` generated during onboarding is REPLACED by the Firebase `uid` on first persist.
@@ -339,11 +377,11 @@ Every AI call is wrapped in `_safeGenerate`, which on exception OR empty respons
 - `AppRouter.cinematicSeen` is set in `main.dart` before app runs — static field on the router class.
 - Onboarding is a single `/onboarding` route with 24 internal pages managed by a `PageView`. Paywall and auth are separate routes (`/paywall`, `/auth`).
 - `OnboardingData` model collects all answers during the flow. `UserProvider.createProfile(...)` is called on "See Your Plan" — this now builds the profile in memory and flips the local `onboarding_complete` flag, but the Firestore write only happens once the user signs in on `/auth`. The auth state listener in `main.dart` picks up the in-memory seed and writes it to `users/{uid}/profile/main` with `id` swapped to the Firebase `uid`.
-- Paywall screen at `/paywall` is a standalone GymLevels-style paywall with hero image, shimmer offer banner, annual/weekly pricing cards, benefit showcase, quick features, social proof, and fixed bottom CTA. UI-only for MVP.
-- Auth screen at `/auth` uses real Firebase Auth via `AuthService`. Apple, Google, and Email+Password flows are all wired. Email form tries sign-in first, then falls back to sign-up on user-not-found/invalid-credential. Errors surface via `_friendlyError()` which maps FirebaseAuthException codes to user-readable strings. Loading overlay disables all buttons during network calls.
+- Paywall screen at `/paywall` is a standalone GymLevels-style paywall with hero image, shimmer offer banner, annual/weekly pricing cards, benefit showcase, quick features, social proof, and fixed bottom CTA. It is RevenueCat-backed via `SubscriptionService`; purchase and restore both update the `premium` entitlement state.
+- Auth screen at `/auth` uses real Firebase Auth via `AuthService`. Apple, Google, and Email+Password flows are all wired. Email has an explicit Sign in / Create account mode toggle — do NOT reintroduce silent auto-signup fallback on `invalid-credential` because Firebase returns that for both wrong-password and user-not-found under account enumeration protection. Errors surface via `_friendlyError()` which maps FirebaseAuthException codes to user-readable strings. Loading overlay disables all buttons during network calls.
 - Paywall close (X) button routes to `/auth` — users must authenticate before entering the app. No skip-to-journey shortcut remains.
 - `AuthService` generates a SHA256-hashed nonce for Apple sign-in (required for Firebase ID token exchange). First-time Apple sign-in writes the given+family name into `FirebaseAuth.currentUser.displayName` (Apple only returns the name on first auth).
-- Router has an auth-aware redirect: unauthenticated users are forced to `/auth` for all app routes. Public routes: `/intro`, `/onboarding`, `/paywall`, `/auth`, `/debug`. The router uses `refreshListenable: _AuthStateListenable()` which wraps `FirebaseAuth.authStateChanges()` so sign-in/sign-out triggers immediate redirect re-evaluation. `_isSignedIn()` is wrapped in try/catch for safety when Firebase hasn't initialised.
+- Router has an auth + subscription-aware redirect: unauthenticated users are forced to `/auth` for app routes, and signed-in non-premium users are forced to `/paywall`. Public routes: `/intro`, `/onboarding`, `/paywall`, `/auth`, `/debug`. The router uses `_RouterRefreshListenable`, which wraps `FirebaseAuth.authStateChanges()` plus `SubscriptionService` notifications so sign-in/sign-out/purchase/restore all trigger immediate redirect re-evaluation. `_isSignedIn()` is wrapped in try/catch for safety when Firebase hasn't initialised.
 - Sign out lives in the You tab settings sheet (last item). Calls `AuthService.signOut()` then pushes `/auth`.
 - iOS 15.0 minimum (Firebase Auth requirement). Android minSdk is 23. Debug SHA-1 is registered with Firebase — Google Sign-In works on debug builds.
 - `Runner.entitlements` contains `com.apple.developer.applesignin`. Referenced via `CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements` in all three build configs (Debug/Release/Profile). Apple Sign-In capability must ALSO be enabled on the App ID in Apple Developer portal before TestFlight/App Store builds.
@@ -443,7 +481,7 @@ users/{uid}/audio/journal/{entryId}.wav
 
 ## Phase 2 TODO
 
-- RevenueCat subscription integration (hook paywall CTA up to real purchase flow)
+- RevenueCat sandbox purchase smoke test on a physical device / TestFlight build (SDK wiring is in place)
 - App Check ENFORCEMENT — enable on the Firebase console for the `gemini-2.5-flash` endpoint once client-side is rolled out to enough users
 - Weekly insight reports (card stack format)
 - Voyage Map with real data visualization

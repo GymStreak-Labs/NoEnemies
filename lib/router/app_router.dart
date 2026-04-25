@@ -25,6 +25,7 @@ import '../screens/journal/journal_entry_screen.dart';
 import '../screens/journal/voice_journal_entry_screen.dart';
 import '../services/ai_mentor_service.dart';
 import '../services/storage_service.dart';
+import '../services/subscription_service.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -49,7 +50,10 @@ class AppRouter {
   // -----------------------------------------------------------------------
   static const int debugStartPage = -1;
 
-  static GoRouter router(UserProvider userProvider) {
+  static GoRouter router(
+    UserProvider userProvider,
+    SubscriptionService subscriptionService,
+  ) {
     // Determine initial location:
     // 1. If onboarding complete -> app
     // 2. Debug override -> jump to specific page
@@ -75,7 +79,7 @@ class AppRouter {
     return GoRouter(
       navigatorKey: _rootNavigatorKey,
       initialLocation: initialLocation,
-      refreshListenable: _AuthStateListenable(),
+      refreshListenable: _RouterRefreshListenable(subscriptionService),
       routes: [
         // --- Cinematic Intro ---
         GoRoute(
@@ -83,9 +87,10 @@ class AppRouter {
           pageBuilder: (context, state) => CustomTransitionPage(
             key: state.pageKey,
             child: const IntroCinematicScreen(),
-            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
+            transitionsBuilder:
+                (context, animation, secondaryAnimation, child) {
+                  return FadeTransition(opacity: animation, child: child);
+                },
             transitionDuration: const Duration(milliseconds: 600),
           ),
         ),
@@ -96,14 +101,16 @@ class AppRouter {
           pageBuilder: (context, state) {
             // Support ?page=N query param for debug quick-navigation
             final pageParam = state.uri.queryParameters['page'];
-            final startPage = pageParam != null ? int.tryParse(pageParam) ?? 0 : 0;
+            final startPage = pageParam != null
+                ? int.tryParse(pageParam) ?? 0
+                : 0;
             return CustomTransitionPage(
               key: state.pageKey,
               child: OnboardingFlowScreen(startPage: startPage),
               transitionsBuilder:
                   (context, animation, secondaryAnimation, child) {
-                return FadeTransition(opacity: animation, child: child);
-              },
+                    return FadeTransition(opacity: animation, child: child);
+                  },
               transitionDuration: const Duration(milliseconds: 600),
             );
           },
@@ -123,8 +130,8 @@ class AppRouter {
             child: const PaywallScreen(),
             transitionsBuilder:
                 (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
+                  return FadeTransition(opacity: animation, child: child);
+                },
             transitionDuration: const Duration(milliseconds: 600),
           ),
         ),
@@ -137,8 +144,8 @@ class AppRouter {
             child: const AuthScreen(),
             transitionsBuilder:
                 (context, animation, secondaryAnimation, child) {
-              return FadeTransition(opacity: animation, child: child);
-            },
+                  return FadeTransition(opacity: animation, child: child);
+                },
             transitionDuration: const Duration(milliseconds: 600),
           ),
         ),
@@ -150,27 +157,23 @@ class AppRouter {
           routes: [
             GoRoute(
               path: '/journey',
-              pageBuilder: (context, state) => const NoTransitionPage(
-                child: JourneyTab(),
-              ),
+              pageBuilder: (context, state) =>
+                  const NoTransitionPage(child: JourneyTab()),
             ),
             GoRoute(
               path: '/reflect',
-              pageBuilder: (context, state) => const NoTransitionPage(
-                child: ReflectTab(),
-              ),
+              pageBuilder: (context, state) =>
+                  const NoTransitionPage(child: ReflectTab()),
             ),
             GoRoute(
               path: '/crew',
-              pageBuilder: (context, state) => const NoTransitionPage(
-                child: CrewTab(),
-              ),
+              pageBuilder: (context, state) =>
+                  const NoTransitionPage(child: CrewTab()),
             ),
             GoRoute(
               path: '/you',
-              pageBuilder: (context, state) => const NoTransitionPage(
-                child: YouTab(),
-              ),
+              pageBuilder: (context, state) =>
+                  const NoTransitionPage(child: YouTab()),
             ),
           ],
         ),
@@ -237,6 +240,7 @@ class AppRouter {
       redirect: (context, state) {
         final path = state.uri.path;
         final isOnboarding = !context.read<UserProvider>().isOnboardingComplete;
+        final hasPremium = subscriptionService.hasPremium;
 
         // Paths that never require auth — they're part of the pre-sign-in flow.
         const unauthPaths = <String>{
@@ -248,17 +252,24 @@ class AppRouter {
         };
         final isUnauthPath = unauthPaths.contains(path);
 
-        // --- Auth guard ---
-        // If we have Firebase initialized and the user isn't signed in, they
-        // can't access any of the in-app routes (/journey, /reflect, /you,
-        // /journal, etc.). Redirect them to /auth. We wrap in try/catch so
-        // the app still runs before `flutterfire configure` has been run
-        // (Firebase.instance throws if not initialized).
         final bool isSignedIn = _isSignedIn();
-        if (!isSignedIn && !isUnauthPath && debugStartPage == -1) {
-          // Debug override still works (debugStartPage >= 0 jumps to a
-          // specific onboarding page).
-          return '/auth';
+        final isDebugMainBypass = debugStartPage == -3;
+
+        // If the user already has premium, don't leave them parked on the
+        // paywall. Anonymous purchasers still need to authenticate so the
+        // purchase can be aliased to their Firebase uid.
+        if (path == '/paywall' && hasPremium && debugStartPage == -1) {
+          return isSignedIn ? '/journey' : '/auth';
+        }
+
+        // If a signed-in user reaches auth, send them to the right locked or
+        // unlocked destination. This keeps the close-X -> auth flow honest:
+        // sign-in without premium bounces back to the paywall.
+        if (path == '/auth' &&
+            isSignedIn &&
+            !isOnboarding &&
+            debugStartPage == -1) {
+          return hasPremium ? '/journey' : '/paywall';
         }
 
         // --- Onboarding gate ---
@@ -269,6 +280,28 @@ class AppRouter {
             return '/intro';
           }
           return '/onboarding';
+        }
+
+        // --- Auth guard ---
+        // If we have Firebase initialized and the user isn't signed in, they
+        // can't access any of the in-app routes (/journey, /reflect, /you,
+        // /journal, etc.). Redirect them to /auth. We wrap in try/catch so
+        // the app still runs before `flutterfire configure` has been run
+        // (Firebase.instance throws if not initialized).
+        if (!isSignedIn && !isUnauthPath && debugStartPage == -1) {
+          // Debug override still works (debugStartPage >= 0 jumps to a
+          // specific onboarding page).
+          return '/auth';
+        }
+
+        // --- Premium guard ---
+        // NoEnemies has no free tier. Once onboarding and auth are done,
+        // every in-app route requires RevenueCat's `premium` entitlement.
+        if (!hasPremium &&
+            !isUnauthPath &&
+            !isDebugMainBypass &&
+            debugStartPage == -1) {
+          return '/paywall';
         }
 
         return null;
@@ -290,29 +323,30 @@ class AppRouter {
   }
 }
 
-/// Rebroadcasts [FirebaseAuth.authStateChanges] as a [Listenable] so
-/// [GoRouter] re-evaluates redirects on sign-in / sign-out. Safe before
-/// Firebase is initialized — falls back to a no-op listenable.
-class _AuthStateListenable extends ChangeNotifier {
-  _AuthStateListenable() {
+/// Rebroadcasts Firebase auth + RevenueCat entitlement changes as one
+/// [Listenable] so [GoRouter] re-evaluates redirects on sign-in/sign-out and
+/// immediately after purchases/restores. Safe before Firebase is initialized.
+class _RouterRefreshListenable extends ChangeNotifier {
+  _RouterRefreshListenable(this._subscriptionService) {
     try {
       _subscription = FirebaseAuth.instance.authStateChanges().listen((_) {
         notifyListeners();
       });
     } catch (e) {
       if (kDebugMode) {
-        debugPrint(
-          '[AppRouter] Could not subscribe to authStateChanges: $e',
-        );
+        debugPrint('[AppRouter] Could not subscribe to authStateChanges: $e');
       }
     }
+    _subscriptionService.addListener(notifyListeners);
   }
 
+  final SubscriptionService _subscriptionService;
   StreamSubscription<User?>? _subscription;
 
   @override
   void dispose() {
     _subscription?.cancel();
+    _subscriptionService.removeListener(notifyListeners);
     super.dispose();
   }
 }
@@ -325,11 +359,11 @@ class _DebugScreenPicker extends StatelessWidget {
   const _DebugScreenPicker();
 
   static const _phaseColors = <int, Color>{
-    0: Color(0xFFD4A853),  // Phase 1 — name
-    1: Color(0xFFC75050),  // Phase 2 — quiz
-    4: Color(0xFF5BBFBA),  // Phase 3 — value
-    6: Color(0xFFC75050),  // Phase 4 — quiz
-    9: Color(0xFFE8C87A),  // Phase 4 — targets
+    0: Color(0xFFD4A853), // Phase 1 — name
+    1: Color(0xFFC75050), // Phase 2 — quiz
+    4: Color(0xFF5BBFBA), // Phase 3 — value
+    6: Color(0xFFC75050), // Phase 4 — quiz
+    9: Color(0xFFE8C87A), // Phase 4 — targets
     11: Color(0xFF5BBFBA), // Phase 5 — value
     13: Color(0xFFC75050), // Phase 6 — quiz
     17: Color(0xFF6BCB77), // Phase 7 — journey
@@ -367,7 +401,9 @@ class _DebugScreenPicker extends StatelessWidget {
       ),
       body: ListView.separated(
         padding: const EdgeInsets.all(16),
-        itemCount: OnboardingFlowScreen.pageNames.length + 3, // +3 for paywall, auth, app
+        itemCount:
+            OnboardingFlowScreen.pageNames.length +
+            3, // +3 for paywall, auth, app
         separatorBuilder: (_, _) => const SizedBox(height: 6),
         itemBuilder: (context, index) {
           // Onboarding pages
@@ -390,15 +426,25 @@ class _DebugScreenPicker extends StatelessWidget {
               GoRouter.of(context).go('/auth');
             });
           }
-          return _tile(context, 'App (Journey Tab)', const Color(0xFF6BCB77), () {
-            GoRouter.of(context).go('/journey');
-          });
+          return _tile(
+            context,
+            'App (Journey Tab)',
+            const Color(0xFF6BCB77),
+            () {
+              GoRouter.of(context).go('/journey');
+            },
+          );
         },
       ),
     );
   }
 
-  Widget _tile(BuildContext context, String title, Color color, VoidCallback onTap) {
+  Widget _tile(
+    BuildContext context,
+    String title,
+    Color color,
+    VoidCallback onTap,
+  ) {
     return Material(
       color: Colors.white.withValues(alpha: 0.04),
       borderRadius: BorderRadius.circular(12),
@@ -412,10 +458,7 @@ class _DebugScreenPicker extends StatelessWidget {
               Container(
                 width: 8,
                 height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color,
-                ),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: color),
               ),
               const SizedBox(width: 12),
               Expanded(
