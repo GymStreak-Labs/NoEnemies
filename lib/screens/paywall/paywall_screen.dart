@@ -3,17 +3,16 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../services/legal_urls.dart';
+import '../../services/subscription_service.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/ambient_particles.dart';
 
 /// Standalone paywall screen shown after onboarding celebration.
 /// Modeled after GymLevels' paywall with NoEnemies' dark anime aesthetic.
-///
-/// For MVP: UI-only, no RevenueCat integration.
-/// TODO: Wire up RevenueCat in Phase 2
 class PaywallScreen extends StatefulWidget {
   const PaywallScreen({super.key});
 
@@ -54,6 +53,15 @@ class _PaywallScreenState extends State<PaywallScreen>
     Future.delayed(const Duration(milliseconds: 1000), () {
       if (mounted) setState(() => _showCta = true);
     });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final subscriptions = context.read<SubscriptionService>();
+      if (subscriptions.offerings == null &&
+          !subscriptions.isLoadingOfferings) {
+        subscriptions.loadOfferings();
+      }
+    });
   }
 
   @override
@@ -62,14 +70,45 @@ class _PaywallScreenState extends State<PaywallScreen>
     super.dispose();
   }
 
-  String get _ctaText => _isAnnual
-      ? 'Start My Journey \u2014 \$59.99/year'
-      : 'Start Free Trial \u2014 \$4.99/week';
+  String _ctaText(SubscriptionService subscriptions) {
+    if (_isAnnual) {
+      return 'Start My Journey \u2014 ${subscriptions.annualPrice}/year';
+    }
+    return 'Start Free Trial \u2014 ${subscriptions.weeklyPrice}/week';
+  }
 
-  void _handleSubscribe() {
-    // TODO: Wire up RevenueCat in Phase 2
-    debugPrint('[PaywallScreen] Subscribe tapped: ${_isAnnual ? "annual" : "weekly"}');
-    context.go('/auth');
+  Future<void> _handleSubscribe() async {
+    final subscriptions = context.read<SubscriptionService>();
+    final package = subscriptions.packageForPlan(annual: _isAnnual);
+    if (package == null) {
+      _showSnackBar(
+        subscriptions.isLoadingOfferings
+            ? 'Plans are still loading. Try again in a moment.'
+            : 'Plans are not available yet. Please try again shortly.',
+      );
+      if (!subscriptions.isLoadingOfferings) {
+        await subscriptions.loadOfferings();
+      }
+      return;
+    }
+
+    debugPrint(
+      '[PaywallScreen] Subscribe tapped: '
+      '${_isAnnual ? "annual" : "weekly"} -> ${package.identifier} / '
+      '${package.storeProduct.identifier}',
+    );
+
+    final result = await subscriptions.purchase(package);
+    if (!mounted) return;
+
+    if (result.success) {
+      _showSnackBar('You are in. Welcome to the path.');
+      context.go('/auth');
+    } else if (!result.cancelled) {
+      _showSnackBar(
+        result.errorMessage ?? 'Purchase failed. Please try again.',
+      );
+    }
   }
 
   void _handleClose() {
@@ -82,6 +121,7 @@ class _PaywallScreenState extends State<PaywallScreen>
   @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final subscriptions = context.watch<SubscriptionService>();
 
     return PopScope(
       canPop: false,
@@ -122,10 +162,10 @@ class _PaywallScreenState extends State<PaywallScreen>
               child: Column(
                 children: [
                   _buildHeroSection(),
-                  _buildSpecialOfferBanner(),
+                  _buildSpecialOfferBanner(subscriptions),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: _buildPricingCards(),
+                    child: _buildPricingCards(subscriptions),
                   ),
                   const SizedBox(height: 32),
                   _buildSectionDivider(),
@@ -200,7 +240,7 @@ class _PaywallScreenState extends State<PaywallScreen>
                     top: 24,
                     bottom: bottomPadding + 12,
                   ),
-                  child: _buildCtaButton(),
+                  child: _buildCtaButton(subscriptions),
                 ),
               ),
             ),
@@ -293,7 +333,7 @@ class _PaywallScreenState extends State<PaywallScreen>
   // SPECIAL OFFER BANNER
   // ===========================================================
 
-  Widget _buildSpecialOfferBanner() {
+  Widget _buildSpecialOfferBanner(SubscriptionService subscriptions) {
     return AnimatedOpacity(
       opacity: _showPlans ? 1.0 : 0.0,
       duration: const Duration(milliseconds: 400),
@@ -332,13 +372,15 @@ class _PaywallScreenState extends State<PaywallScreen>
                       margin: const EdgeInsets.only(right: 4),
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: AppColors.primary.withValues(alpha: 0.6 - (i * 0.15)),
+                        color: AppColors.primary.withValues(
+                          alpha: 0.6 - (i * 0.15),
+                        ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'LIMITED OFFER',
+                    subscriptions.specialOfferTitle.toUpperCase(),
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
@@ -356,9 +398,9 @@ class _PaywallScreenState extends State<PaywallScreen>
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    child: const Text(
-                      'BEST VALUE',
-                      style: TextStyle(
+                    child: Text(
+                      subscriptions.specialOfferBadge,
+                      style: const TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w800,
                         color: Color(0xFFB45309),
@@ -379,7 +421,15 @@ class _PaywallScreenState extends State<PaywallScreen>
   // PRICING CARDS
   // ===========================================================
 
-  Widget _buildPricingCards() {
+  Widget _buildPricingCards(SubscriptionService subscriptions) {
+    final annualBreakdown = subscriptions.annualWeeklyBreakdown;
+    final annualBadge = subscriptions.hasSpecialAnnualOffer
+        ? 'SPECIAL'
+        : 'SAVE 77%';
+    final annualSubtitle = subscriptions.hasSpecialAnnualOffer
+        ? 'Usually ${subscriptions.regularAnnualPrice}/year'
+        : null;
+
     return AnimatedOpacity(
       opacity: _showPlans ? 1.0 : 0.0,
       duration: const Duration(milliseconds: 500),
@@ -392,22 +442,23 @@ class _PaywallScreenState extends State<PaywallScreen>
             // Annual plan (selected by default)
             _buildPlanCard(
               title: 'Annual',
-              price: '\$59.99',
+              price: subscriptions.annualPrice,
               period: '/year',
-              breakdown: '\$1.15/week',
+              breakdown: annualBreakdown,
               isSelected: _isAnnual,
               onTap: () {
                 HapticFeedback.selectionClick();
                 setState(() => _isAnnual = true);
               },
-              badge: 'SAVE 77%',
+              badge: annualBadge,
+              subtitle: annualSubtitle,
               isAnnual: true,
             ),
             const SizedBox(height: 10),
             // Weekly plan
             _buildPlanCard(
               title: 'Weekly',
-              price: '\$4.99',
+              price: subscriptions.weeklyPrice,
               period: '/week',
               breakdown: null,
               isSelected: !_isAnnual,
@@ -436,7 +487,9 @@ class _PaywallScreenState extends State<PaywallScreen>
     String? subtitle,
   }) {
     final glowColor = isAnnual ? AppColors.primary : Colors.white24;
-    final effectiveGlow = isSelected ? glowColor : glowColor.withValues(alpha: 0.5);
+    final effectiveGlow = isSelected
+        ? glowColor
+        : glowColor.withValues(alpha: 0.5);
 
     return GestureDetector(
       onTap: onTap,
@@ -474,7 +527,10 @@ class _PaywallScreenState extends State<PaywallScreen>
           child: Row(
             children: [
               // Check indicator
-              _buildCheckIndicator(isSelected, isAnnual ? AppColors.primary : Colors.white54),
+              _buildCheckIndicator(
+                isSelected,
+                isAnnual ? AppColors.primary : Colors.white54,
+              ),
               const SizedBox(width: 14),
               // Title + subtitle/breakdown
               Expanded(
@@ -704,15 +760,12 @@ class _PaywallScreenState extends State<PaywallScreen>
           final index = entry.key;
           final benefit = entry.value;
           return _BenefitCard(
-            icon: benefit.$1,
-            title: benefit.$2,
-            subtitle: benefit.$3,
-          )
-              .animate()
-              .fadeIn(
-                delay: (200 * index).ms,
-                duration: 400.ms,
+                icon: benefit.$1,
+                title: benefit.$2,
+                subtitle: benefit.$3,
               )
+              .animate()
+              .fadeIn(delay: (200 * index).ms, duration: 400.ms)
               .slideX(
                 begin: 0.05,
                 end: 0,
@@ -750,9 +803,7 @@ class _PaywallScreenState extends State<PaywallScreen>
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.03),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.08),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
             ),
             child: Text(
               label,
@@ -828,45 +879,40 @@ class _PaywallScreenState extends State<PaywallScreen>
           onPressed: () => _openLegalUrl(LegalUrls.termsOfUse),
           child: Text(
             'Terms',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.textTertiary,
-            ),
+            style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
           ),
         ),
-        Text(
-          '\u00B7',
-          style: TextStyle(
-            color: AppColors.textTertiary,
-          ),
-        ),
+        Text('\u00B7', style: TextStyle(color: AppColors.textTertiary)),
         TextButton(
           onPressed: () => _openLegalUrl(LegalUrls.privacyPolicy),
           child: Text(
             'Privacy',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.textTertiary,
-            ),
+            style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
           ),
         ),
-        Text(
-          '\u00B7',
-          style: TextStyle(
-            color: AppColors.textTertiary,
-          ),
-        ),
+        Text('\u00B7', style: TextStyle(color: AppColors.textTertiary)),
         TextButton(
-          onPressed: () {
-            // TODO: Wire up RevenueCat restore purchases
+          onPressed: () async {
+            HapticFeedback.selectionClick();
             debugPrint('[PaywallScreen] Restore tapped');
+            final result = await context
+                .read<SubscriptionService>()
+                .restorePurchases();
+            if (!mounted) return;
+            if (result.success && result.isPremium) {
+              _showSnackBar('Purchase restored. Welcome back.');
+              context.go('/auth');
+            } else if (result.success) {
+              _showSnackBar('No active subscription found.');
+            } else {
+              _showSnackBar(
+                result.errorMessage ?? 'Restore failed. Please try again.',
+              );
+            }
           },
           child: Text(
             'Restore',
-            style: TextStyle(
-              fontSize: 12,
-              color: AppColors.textTertiary,
-            ),
+            style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
           ),
         ),
       ],
@@ -885,30 +931,44 @@ class _PaywallScreenState extends State<PaywallScreen>
         mode: LaunchMode.externalApplication,
       );
       if (!launched && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open $url')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not open $url')));
       }
     } catch (e) {
       debugPrint('[PaywallScreen] _openLegalUrl failed for $url: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open the page')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not open the page')));
       }
     }
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFF141925),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   // ===========================================================
   // CTA BUTTON
   // ===========================================================
 
-  Widget _buildCtaButton() {
+  Widget _buildCtaButton(SubscriptionService subscriptions) {
+    final disabled = subscriptions.isPurchasing;
     return GestureDetector(
-      onTap: () {
-        HapticFeedback.mediumImpact();
-        _handleSubscribe();
-      },
+      onTap: disabled
+          ? null
+          : () async {
+              HapticFeedback.mediumImpact();
+              await _handleSubscribe();
+            },
       child: AnimatedScale(
         scale: _showCta ? 1.0 : 0.95,
         duration: const Duration(milliseconds: 500),
@@ -935,15 +995,24 @@ class _PaywallScreenState extends State<PaywallScreen>
             ],
           ),
           child: Center(
-            child: Text(
-              _ctaText,
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF0A0E1A),
-                letterSpacing: 0.3,
-              ),
-            ),
+            child: subscriptions.isPurchasing
+                ? const SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: Color(0xFF0A0E1A),
+                    ),
+                  )
+                : Text(
+                    _ctaText(subscriptions),
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0A0E1A),
+                      letterSpacing: 0.3,
+                    ),
+                  ),
           ),
         ),
       ),
@@ -974,9 +1043,7 @@ class _BenefitCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.03),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.06),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
       ),
       child: Row(
         children: [

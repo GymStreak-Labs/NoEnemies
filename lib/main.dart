@@ -21,6 +21,7 @@ import 'services/ai_service.dart';
 import 'services/auth_service.dart';
 import 'services/firestore_repository.dart';
 import 'services/storage_service.dart';
+import 'services/subscription_service.dart';
 
 /// Global subscription so the auth listener survives hot restart without
 /// stacking duplicates.
@@ -53,14 +54,14 @@ void main() async {
   }
 
   // Lock to portrait + dark status bar.
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-  ]);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarBrightness: Brightness.dark,
-    statusBarIconBrightness: Brightness.light,
-  ));
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarBrightness: Brightness.dark,
+      statusBarIconBrightness: Brightness.light,
+    ),
+  );
 
   // Device-local storage (onboarding flag, title index, legacy migration).
   final storageService = StorageService();
@@ -74,6 +75,10 @@ void main() async {
     await aiMentor.init();
   }
   final authService = AuthService();
+  final subscriptionService = SubscriptionService();
+  await subscriptionService.init(
+    appUserId: firebaseReady ? FirebaseAuth.instance.currentUser?.uid : null,
+  );
 
   AppRouter.cinematicSeen = await IntroCinematicScreen.hasBeenSeen();
 
@@ -93,6 +98,10 @@ void main() async {
     await _authSub?.cancel();
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) async {
       if (user != null) {
+        // RevenueCat aliases any anonymous paywall purchase to the Firebase uid
+        // after auth. Non-critical: Firestore still attaches even if this fails.
+        await subscriptionService.logIn(user.uid);
+
         final repo = FirestoreRepository(uid: user.uid);
 
         // Pick a seed profile: prefer the one built during onboarding (held
@@ -102,7 +111,8 @@ void main() async {
 
         // Legacy migration path — if SharedPreferences has pre-Firestore
         // data AND we haven't migrated this install yet, import it.
-        final shouldMigrate = !storageService.isLegacyMigrated &&
+        final shouldMigrate =
+            !storageService.isLegacyMigrated &&
             storageService.hasLegacyUserData;
         if (shouldMigrate) {
           try {
@@ -139,6 +149,7 @@ void main() async {
 
         await userProvider.attachRepository(repo, seedProfile: seed);
       } else {
+        await subscriptionService.logOut();
         await userProvider.detachRepository();
       }
     });
@@ -171,6 +182,7 @@ void main() async {
         Provider<AuthService>.value(value: authService),
         Provider<StorageService>.value(value: storageService),
         Provider<AiMentorService>.value(value: aiMentor),
+        ChangeNotifierProvider.value(value: subscriptionService),
         ChangeNotifierProvider.value(value: userProvider),
         ChangeNotifierProvider(
           create: (_) => JourneyProvider(aiService, mentor: aiMentor),
