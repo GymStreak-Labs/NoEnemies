@@ -308,7 +308,8 @@ NoEnemies is premium-only. RevenueCat is configured in [`lib/services/subscripti
 
 **RevenueCat project**
 - Project ID: `e1cbc9d7`
-- Credential file: `~/.mission-control/credentials/noenemies-revenuecat.env` (secret key stays local; never embed `sk_...` keys in the app)
+- Credentials: stored in Mission Control `mc-vault` as `noenemies-revenuecat-username`, `noenemies-revenuecat-password`, `noenemies-revenuecat-project-id`, `noenemies-revenuecat-secret-key`, and `noenemies-revenuecat-secret-key-v1`. Do **not** read or recreate the legacy plaintext env file; secret keys stay local and must never be embedded in the app.
+- Browser login service: `mc auth login noenemies-revenuecat` (GymStreak Labs browser profile). Use `mc auth secure-fill` / `secure-type` placeholders for form entry; never print secrets.
 - iOS app: `app59ae701630`, bundle `com.gymstreaklabs.noEnemies`, public SDK key `appl_...`
 - Android app: `appfda3285758`, package `com.gymstreaklabs.no_enemies`, public SDK key `goog_...`
 
