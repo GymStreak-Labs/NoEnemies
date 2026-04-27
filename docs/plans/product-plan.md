@@ -107,12 +107,12 @@ Collected wisdom from your journey — insights, breakthroughs, mantras that wor
 - Book of Peace (collected wisdom)
 - Dimension ratings history
 
-### Tab 3: Crew
-- Your crew (5-8 people)
-- Weekly check-ins
-- Shared challenges
-- Community feed (anonymous insights)
-- Crew stats / collective progress
+### Tab 3: Crew / Peace Exchange
+- Peace Letters: anonymous, moderated letters for being witnessed and offering support
+- Write a Peace Letter, witness nightly letters, receive Peace Offerings
+- Peace Given / Peace Received stats
+- Book of Peace integration for saved offerings
+- Longer-term: small crews can layer on top once the safer Peace Exchange loop is proven
 
 ### Tab 4: You
 - Character visualization (current form)
@@ -181,8 +181,9 @@ Card stack format (like Spotify Wrapped but weekly):
 - Character evolution (multiple stages)
 
 ### Phase 3: Social
-- Crews (matching, check-ins, challenges)
-- Community feed
+- Peace Letters / Peace Exchange as the first social mechanic
+- Anonymous, moderated human witness network — no DMs, no profiles, no public feed at MVP
+- Crews (matching, check-ins, challenges) can layer on later if the Peace Exchange safety loop works
 - Shareable milestones
 - Book of Peace sharing
 
