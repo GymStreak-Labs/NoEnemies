@@ -5,7 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/peace_letter.dart';
-import '../../providers/peace_exchange_provider.dart';
+import '../../providers/peace_letters_provider.dart';
 import '../../theme/app_colors.dart';
 
 class PeaceLetterDetailScreen extends StatelessWidget {
@@ -15,7 +15,7 @@ class PeaceLetterDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<PeaceExchangeProvider>();
+    final provider = context.watch<PeaceLettersProvider>();
     final letter = provider.letterById(letterId);
 
     return Scaffold(
@@ -58,7 +58,7 @@ class _MissingLetter extends StatelessWidget {
             const SizedBox(height: 12),
             TextButton(
               onPressed: onBack,
-              child: const Text('Back to Peace Exchange'),
+              child: const Text('Back to Peace Letters'),
             ),
           ],
         ),
@@ -74,7 +74,7 @@ class _LetterDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<PeaceExchangeProvider>();
+    final provider = context.watch<PeaceLettersProvider>();
     final isDraft = letter.status == PeaceLetterStatus.draft;
 
     return Stack(
@@ -155,23 +155,13 @@ class _LetterDetail extends StatelessWidget {
                         ),
                       ),
                       child: Text(
-                        letter.publicText,
+                        letter.displayText,
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                           color: AppColors.textPrimary,
                           height: 1.7,
                         ),
                       ),
                     ),
-                    if (letter.moderationNote != null) ...[
-                      const SizedBox(height: 18),
-                      Text(
-                        letter.moderationNote!,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: AppColors.textTertiary,
-                          height: 1.45,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
               ),

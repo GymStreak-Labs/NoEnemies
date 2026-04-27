@@ -6,7 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../models/peace_letter.dart';
 import '../services/firestore_repository.dart';
 
-class PeaceExchangeProvider extends ChangeNotifier {
+class PeaceLettersProvider extends ChangeNotifier {
   FirestoreRepository? _repo;
   StreamSubscription<List<PeaceLetter>>? _lettersSub;
 
@@ -27,10 +27,6 @@ class PeaceExchangeProvider extends ChangeNotifier {
       .where((letter) => letter.status != PeaceLetterStatus.draft)
       .toList(growable: false);
 
-  int get peaceGiven => 0; // Phase E server stat.
-  int get peaceReceived => 0; // Phase E server stat.
-  int get savedOfferings => 0; // Phase E server stat.
-
   Future<void> attachRepository(FirestoreRepository repo) async {
     if (_repo?.uid == repo.uid) return;
     await detachRepository();
@@ -42,7 +38,7 @@ class PeaceExchangeProvider extends ChangeNotifier {
       },
       onError: (Object e, StackTrace st) {
         _lastError = 'Peace Letters could not be loaded.';
-        debugPrint('[PeaceExchangeProvider] stream error: $e\n$st');
+        debugPrint('[PeaceLettersProvider] stream error: $e\n$st');
         notifyListeners();
       },
     );
@@ -88,17 +84,13 @@ class PeaceExchangeProvider extends ChangeNotifier {
     return _saveLetter(letter.copyWith(updatedAt: DateTime.now()));
   }
 
-  /// Phase A/B: seal the letter privately. The real Peace Exchange submission
-  /// will happen through Cloud Functions in Phase D so we do not create an
-  /// unsafe client-writable global anonymous pool.
+  /// Launch V1: seal the letter as a private ritual.
   Future<PeaceLetter?> sealPrivately(PeaceLetter letter) async {
     return _saveLetter(
       letter.copyWith(
         status: PeaceLetterStatus.sealed,
-        submittedAt: DateTime.now(),
+        sealedAt: DateTime.now(),
         updatedAt: DateTime.now(),
-        moderationNote:
-            'Sealed privately. Exchange delivery unlocks after server moderation is wired.',
       ),
     );
   }
@@ -113,7 +105,7 @@ class PeaceExchangeProvider extends ChangeNotifier {
       await repo.deletePeaceLetter(id);
     } catch (e, st) {
       _lastError = 'Could not delete this letter.';
-      debugPrint('[PeaceExchangeProvider] deleteLetter failed: $e\n$st');
+      debugPrint('[PeaceLettersProvider] deleteLetter failed: $e\n$st');
     } finally {
       _isSaving = false;
       notifyListeners();
@@ -135,7 +127,7 @@ class PeaceExchangeProvider extends ChangeNotifier {
       return letter;
     } catch (e, st) {
       _lastError = 'Could not save this Peace Letter.';
-      debugPrint('[PeaceExchangeProvider] saveLetter failed: $e\n$st');
+      debugPrint('[PeaceLettersProvider] saveLetter failed: $e\n$st');
       return null;
     } finally {
       _isSaving = false;

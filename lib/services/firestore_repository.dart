@@ -340,8 +340,6 @@ class FirestoreRepository {
   /// - `users/{uid}/checkIns/*`
   /// - `users/{uid}/journal/*` (+ matching audio blobs in Storage)
   /// - `users/{uid}/peaceLetters/*`
-  /// - `users/{uid}/peaceInbox/*` / `peaceOfferings*` / `peaceStats/*`
-  ///   (reserved for Peace Exchange server-mediated delivery)
   /// - `users/{uid}/ai/context`
   /// - `users/{uid}/credits/*` (reserved for voice mentor, may not exist)
   /// - `users/{uid}/audio/journal/*` in Firebase Storage (catch-all for any
@@ -391,10 +389,6 @@ class FirestoreRepository {
     await wipeCollection(_checkInsCol);
     await wipeCollection(_journalCol);
     await wipeCollection(_peaceLettersCol);
-    await wipeCollection(_userDoc.collection('peaceInbox'));
-    await wipeCollection(_userDoc.collection('peaceOfferingsReceived'));
-    await wipeCollection(_userDoc.collection('peaceOfferingsSent'));
-    await wipeCollection(_userDoc.collection('peaceStats'));
     await wipeCollection(_userDoc.collection('profile'));
     await wipeCollection(_userDoc.collection('ai'));
     await wipeCollection(_userDoc.collection('credits'));

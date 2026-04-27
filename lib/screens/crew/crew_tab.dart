@@ -7,7 +7,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/peace_letter.dart';
-import '../../providers/peace_exchange_provider.dart';
+import '../../providers/peace_letters_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/ambient_particles.dart';
 
@@ -16,9 +16,13 @@ class CrewTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final peace = context.watch<PeaceExchangeProvider>();
+    final peace = context.watch<PeaceLettersProvider>();
     final drafts = peace.drafts;
     final sealed = peace.sealedLetters;
+    final totalWords = peace.letters.fold<int>(
+      0,
+      (sum, letter) => sum + letter.wordCount,
+    );
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -28,24 +32,24 @@ class CrewTab extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: RadialGradient(
-                  center: const Alignment(0, -0.8),
+                  center: const Alignment(0, -0.78),
                   radius: 1.25,
                   colors: [
-                    AppColors.accent.withValues(alpha: 0.13),
-                    AppColors.primary.withValues(alpha: 0.04),
+                    AppColors.primary.withValues(alpha: 0.12),
+                    AppColors.accent.withValues(alpha: 0.04),
                     Colors.black,
                   ],
-                  stops: const [0.0, 0.48, 1.0],
+                  stops: const [0.0, 0.42, 1.0],
                 ),
               ),
             ),
           ),
           const Positioned.fill(
             child: AmbientParticles(
-              particleCount: 14,
-              color: AppColors.accent,
-              opacity: 0.16,
-              maxParticleSize: 2.2,
+              particleCount: 12,
+              color: AppColors.primary,
+              opacity: 0.14,
+              maxParticleSize: 2,
               minParticleSize: 0.4,
             ),
           ),
@@ -59,9 +63,10 @@ class CrewTab extends StatelessWidget {
                     delegate: SliverChildListDelegate([
                       _buildHeader(context),
                       const SizedBox(height: 18),
-                      _HeroExchangeCard(
+                      _HeroCard(
                             draftsCount: drafts.length,
                             sealedCount: sealed.length,
+                            totalWords: totalWords,
                           )
                           .animate()
                           .fadeIn(delay: 120.ms, duration: 420.ms)
@@ -71,23 +76,20 @@ class CrewTab extends StatelessWidget {
                             delay: 120.ms,
                             duration: 420.ms,
                           ),
-                      const SizedBox(height: 18),
-                      _StatsRow(
-                        provider: peace,
-                      ).animate().fadeIn(delay: 220.ms, duration: 360.ms),
                       const SizedBox(height: 22),
-                      _SectionTitle(
-                        title: 'The Exchange',
-                        subtitle: 'Small ritual loops, not social media.',
+                      const _SectionTitle(
+                        title: 'Private Rituals',
+                        subtitle:
+                            'A launch-safe way to write, seal, and return to what you carried.',
                       ),
                       const SizedBox(height: 12),
-                      _ActionGrid(hasDrafts: drafts.isNotEmpty),
+                      const _ActionGrid(),
                       const SizedBox(height: 26),
                       _SectionTitle(
-                        title: 'Your Peace Letters',
+                        title: 'Your Letters',
                         subtitle: drafts.isEmpty && sealed.isEmpty
-                            ? 'Draft the first thing you are ready to lay down.'
-                            : 'Private drafts and sealed letters live here first.',
+                            ? 'Start with one truth you no longer want to carry alone.'
+                            : 'Drafts and sealed letters are private to you.',
                       ),
                       const SizedBox(height: 12),
                       if (drafts.isEmpty && sealed.isEmpty)
@@ -115,9 +117,9 @@ class CrewTab extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'PEACE EXCHANGE',
+          'PEACE LETTERS',
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: AppColors.accent,
+            color: AppColors.primary,
             letterSpacing: 3,
             fontWeight: FontWeight.w700,
           ),
@@ -128,7 +130,7 @@ class CrewTab extends StatelessWidget {
           shaderCallback: (bounds) =>
               AppColors.primaryGradient.createShader(bounds),
           child: Text(
-            'Peace Letters',
+            'Lay the war down',
             style: GoogleFonts.cormorantGaramond(
               fontSize: 42,
               height: 0.96,
@@ -139,7 +141,7 @@ class CrewTab extends StatelessWidget {
         ).animate().fadeIn(delay: 80.ms, duration: 360.ms),
         const SizedBox(height: 8),
         Text(
-          'Write the war down. Let someone witness it. Then release it.',
+          'A private letter ritual for anger, grief, guilt, shame, and the arguments you keep having inside.',
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
             color: AppColors.textSecondary,
             height: 1.45,
@@ -150,14 +152,16 @@ class CrewTab extends StatelessWidget {
   }
 }
 
-class _HeroExchangeCard extends StatelessWidget {
-  const _HeroExchangeCard({
+class _HeroCard extends StatelessWidget {
+  const _HeroCard({
     required this.draftsCount,
     required this.sealedCount,
+    required this.totalWords,
   });
 
   final int draftsCount;
   final int sealedCount;
+  final int totalWords;
 
   @override
   Widget build(BuildContext context) {
@@ -202,7 +206,7 @@ class _HeroExchangeCard extends StatelessWidget {
                       ),
                     ),
                     child: const Icon(
-                      Icons.mark_email_read_outlined,
+                      Icons.mail_lock_outlined,
                       color: AppColors.primary,
                       size: 26,
                     ),
@@ -210,7 +214,7 @@ class _HeroExchangeCard extends StatelessWidget {
                   const SizedBox(width: 14),
                   Expanded(
                     child: Text(
-                      'Tonight, three letters will wait to be witnessed.',
+                      'What part of the war are you ready to lay down?',
                       style: GoogleFonts.cormorantGaramond(
                         color: AppColors.textPrimary,
                         fontSize: 24,
@@ -223,7 +227,7 @@ class _HeroExchangeCard extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               Text(
-                'The public exchange unlocks after server moderation is wired. For now, you can draft and seal letters privately so we can test the ritual safely.',
+                'Write it raw. Seal it privately. Return when you are ready to soften, save, or release it. No strangers, no feed, no social pressure.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: AppColors.textSecondary,
                   height: 1.55,
@@ -238,6 +242,10 @@ class _HeroExchangeCard extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: _MiniMetric(value: '$sealedCount', label: 'Sealed'),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _MiniMetric(value: '$totalWords', label: 'Words'),
                   ),
                 ],
               ),
@@ -305,9 +313,11 @@ class _MiniMetric extends StatelessWidget {
         children: [
           Text(
             value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.cormorantGaramond(
               color: AppColors.primary,
-              fontSize: 28,
+              fontSize: 25,
               fontWeight: FontWeight.w700,
               height: 1,
             ),
@@ -319,88 +329,6 @@ class _MiniMetric extends StatelessWidget {
               color: AppColors.textTertiary,
               letterSpacing: 1.4,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatsRow extends StatelessWidget {
-  const _StatsRow({required this.provider});
-
-  final PeaceExchangeProvider provider;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _StatPill(
-            icon: Icons.volunteer_activism_outlined,
-            label: 'Peace Given',
-            value: provider.peaceGiven.toString(),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _StatPill(
-            icon: Icons.inbox_outlined,
-            label: 'Received',
-            value: provider.peaceReceived.toString(),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _StatPill(
-            icon: Icons.bookmark_border_rounded,
-            label: 'Saved',
-            value: provider.savedOfferings.toString(),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatPill extends StatelessWidget {
-  const _StatPill({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.035),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
-      child: Column(
-        children: [
-          Icon(icon, color: AppColors.accent, size: 19),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: AppColors.textPrimary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.labelSmall?.copyWith(color: AppColors.textTertiary),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -440,9 +368,7 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _ActionGrid extends StatelessWidget {
-  const _ActionGrid({required this.hasDrafts});
-
-  final bool hasDrafts;
+  const _ActionGrid();
 
   @override
   Widget build(BuildContext context) {
@@ -454,7 +380,7 @@ class _ActionGrid extends StatelessWidget {
               child: _ActionCard(
                 icon: Icons.edit_note_rounded,
                 title: 'Write',
-                subtitle: 'Start raw. Seal gently.',
+                subtitle: 'Start with the messy truth.',
                 active: true,
                 onTap: () => context.push('/peace/write'),
               ),
@@ -462,11 +388,14 @@ class _ActionGrid extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: _ActionCard(
-                icon: Icons.nightlight_round,
-                title: 'Witness',
-                subtitle: 'Nightly letters soon.',
+                icon: Icons.auto_fix_high_rounded,
+                title: 'Soften',
+                subtitle: 'AI rewrite comes next.',
                 active: false,
-                onTap: () => _showSoon(context),
+                onTap: () => _showSoon(
+                  context,
+                  'Peace Alchemy comes next: raw draft → softened letter.',
+                ),
               ),
             ),
           ],
@@ -476,11 +405,14 @@ class _ActionGrid extends StatelessWidget {
           children: [
             Expanded(
               child: _ActionCard(
-                icon: Icons.card_giftcard_rounded,
-                title: 'Offerings',
-                subtitle: 'Replies you receive.',
+                icon: Icons.local_fire_department_outlined,
+                title: 'Release',
+                subtitle: 'Burn / sea ritual soon.',
                 active: false,
-                onTap: () => _showSoon(context),
+                onTap: () => _showSoon(
+                  context,
+                  'The release ritual is queued after the private draft loop.',
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -488,7 +420,7 @@ class _ActionGrid extends StatelessWidget {
               child: _ActionCard(
                 icon: Icons.auto_stories_outlined,
                 title: 'Book',
-                subtitle: 'Saved peace.',
+                subtitle: 'Save wisdom privately.',
                 active: false,
                 onTap: () => context.push('/journal'),
               ),
@@ -499,14 +431,10 @@ class _ActionGrid extends StatelessWidget {
     );
   }
 
-  static void _showSoon(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'This unlocks after the moderated exchange backend is wired.',
-        ),
-      ),
-    );
+  static void _showSoon(BuildContext context, String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
 
@@ -592,7 +520,7 @@ class _EmptyLettersCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
           Text(
-            'No letters sealed yet',
+            'No letters yet',
             style: GoogleFonts.cormorantGaramond(
               color: AppColors.textPrimary,
               fontSize: 24,
@@ -601,7 +529,7 @@ class _EmptyLettersCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'Begin with the messy truth. The first draft is private.',
+            'This is private. Begin with one argument, memory, or ache that keeps returning.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: AppColors.textTertiary,
@@ -664,9 +592,9 @@ class _LetterPreviewCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  letter.publicText.isEmpty
+                  letter.displayText.isEmpty
                       ? letter.recipientArchetype.prompt
-                      : letter.publicText,
+                      : letter.displayText,
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -731,7 +659,7 @@ class _SafetyCard extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'Peace Letters is peer witness, not therapy. No DMs, no profiles, no public feed — and the real exchange will only open behind moderation.',
+              'Peace Letters is private reflection, not therapy or emergency support. If you may hurt yourself or someone else, contact local emergency services or a crisis line now.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: AppColors.textSecondary,
                 height: 1.45,

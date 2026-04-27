@@ -13,7 +13,7 @@ import 'firebase_options.dart';
 import 'models/conflict_type.dart';
 import 'models/user_profile.dart';
 import 'providers/journey_provider.dart';
-import 'providers/peace_exchange_provider.dart';
+import 'providers/peace_letters_provider.dart';
 import 'providers/user_provider.dart';
 import 'router/app_router.dart';
 import 'screens/onboarding/intro_cinematic_screen.dart';
@@ -91,7 +91,7 @@ void main() async {
   const int debugPeaceDays = 0;
 
   final userProvider = UserProvider(storageService, mentor: aiMentor);
-  final peaceExchangeProvider = PeaceExchangeProvider();
+  final peaceLettersProvider = PeaceLettersProvider();
 
   // Hook up auth state → repository attach/detach. This is the ONE place in
   // the app where Firestore repositories are created; every other layer
@@ -150,10 +150,10 @@ void main() async {
         }
 
         await userProvider.attachRepository(repo, seedProfile: seed);
-        await peaceExchangeProvider.attachRepository(repo);
+        await peaceLettersProvider.attachRepository(repo);
       } else {
         await subscriptionService.logOut();
-        await peaceExchangeProvider.detachRepository();
+        await peaceLettersProvider.detachRepository();
         await userProvider.detachRepository();
       }
     });
@@ -188,7 +188,7 @@ void main() async {
         Provider<AiMentorService>.value(value: aiMentor),
         ChangeNotifierProvider.value(value: subscriptionService),
         ChangeNotifierProvider.value(value: userProvider),
-        ChangeNotifierProvider.value(value: peaceExchangeProvider),
+        ChangeNotifierProvider.value(value: peaceLettersProvider),
         ChangeNotifierProvider(
           create: (_) => JourneyProvider(aiService, mentor: aiMentor),
         ),

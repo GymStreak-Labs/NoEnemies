@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Who the Peace Letter is addressed to.
+/// Who the private Peace Letter is addressed to.
 enum PeaceRecipientArchetype {
   someoneICantForgive,
   versionOfMeIHate,
@@ -19,7 +19,7 @@ enum PeaceRecipientArchetype {
       case PeaceRecipientArchetype.enemyInMyHead:
         return 'The enemy in my head';
       case PeaceRecipientArchetype.anyoneWhoUnderstands:
-        return 'Anyone who understands';
+        return 'The part of me that understands';
     }
   }
 
@@ -34,18 +34,18 @@ enum PeaceRecipientArchetype {
       case PeaceRecipientArchetype.enemyInMyHead:
         return 'Name the voice that keeps turning you against yourself.';
       case PeaceRecipientArchetype.anyoneWhoUnderstands:
-        return 'Let the letter find whoever knows this ache.';
+        return 'Let the letter find the part of you that understands.';
     }
   }
 }
 
-/// What kind of witness/support the writer is asking for.
+/// What the writer wants this private ritual to help with.
 enum PeaceIntent {
   needToBeHeard,
   needForgiveness,
   needPerspective,
   needToLetGo,
-  wantToHelp;
+  wantToBecomeSofter;
 
   String get label {
     switch (this) {
@@ -57,8 +57,8 @@ enum PeaceIntent {
         return 'I need perspective';
       case PeaceIntent.needToLetGo:
         return 'I need to let go';
-      case PeaceIntent.wantToHelp:
-        return 'I want to help someone else';
+      case PeaceIntent.wantToBecomeSofter:
+        return 'I want to become softer';
     }
   }
 }
@@ -98,12 +98,7 @@ enum PeaceTheme {
 enum PeaceLetterStatus {
   draft,
   sealed,
-  pendingModeration,
-  approved,
-  needsEdit,
-  privateOnly,
-  crisis,
-  rejected;
+  released;
 
   String get label {
     switch (this) {
@@ -111,18 +106,8 @@ enum PeaceLetterStatus {
         return 'Draft';
       case PeaceLetterStatus.sealed:
         return 'Sealed';
-      case PeaceLetterStatus.pendingModeration:
-        return 'Pending review';
-      case PeaceLetterStatus.approved:
-        return 'In the exchange';
-      case PeaceLetterStatus.needsEdit:
-        return 'Needs edit';
-      case PeaceLetterStatus.privateOnly:
-        return 'Private only';
-      case PeaceLetterStatus.crisis:
-        return 'Needs support';
-      case PeaceLetterStatus.rejected:
-        return 'Not sent';
+      case PeaceLetterStatus.released:
+        return 'Released';
     }
   }
 }
@@ -138,8 +123,8 @@ class PeaceLetter {
     this.refinedText,
     this.themes = const [],
     this.status = PeaceLetterStatus.draft,
-    this.submittedAt,
-    this.moderationNote,
+    this.sealedAt,
+    this.releasedAt,
   });
 
   final String id;
@@ -151,15 +136,15 @@ class PeaceLetter {
   final PeaceIntent intent;
   final List<PeaceTheme> themes;
   final PeaceLetterStatus status;
-  final DateTime? submittedAt;
-  final String? moderationNote;
+  final DateTime? sealedAt;
+  final DateTime? releasedAt;
 
-  String get publicText => (refinedText?.trim().isNotEmpty ?? false)
+  String get displayText => (refinedText?.trim().isNotEmpty ?? false)
       ? refinedText!.trim()
       : rawText.trim();
 
   int get wordCount {
-    final trimmed = publicText;
+    final trimmed = displayText;
     if (trimmed.isEmpty) return 0;
     return trimmed.split(RegExp(r'\s+')).length;
   }
@@ -176,11 +161,11 @@ class PeaceLetter {
     PeaceIntent? intent,
     List<PeaceTheme>? themes,
     PeaceLetterStatus? status,
-    DateTime? submittedAt,
-    String? moderationNote,
+    DateTime? sealedAt,
+    DateTime? releasedAt,
     bool clearRefinedText = false,
-    bool clearSubmittedAt = false,
-    bool clearModerationNote = false,
+    bool clearSealedAt = false,
+    bool clearReleasedAt = false,
   }) {
     return PeaceLetter(
       id: id ?? this.id,
@@ -192,10 +177,8 @@ class PeaceLetter {
       intent: intent ?? this.intent,
       themes: themes ?? this.themes,
       status: status ?? this.status,
-      submittedAt: clearSubmittedAt ? null : (submittedAt ?? this.submittedAt),
-      moderationNote: clearModerationNote
-          ? null
-          : (moderationNote ?? this.moderationNote),
+      sealedAt: clearSealedAt ? null : (sealedAt ?? this.sealedAt),
+      releasedAt: clearReleasedAt ? null : (releasedAt ?? this.releasedAt),
     );
   }
 
@@ -211,8 +194,8 @@ class PeaceLetter {
       'wordCount': wordCount,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
-      if (submittedAt != null) 'submittedAt': Timestamp.fromDate(submittedAt!),
-      if (moderationNote != null) 'moderationNote': moderationNote,
+      if (sealedAt != null) 'sealedAt': Timestamp.fromDate(sealedAt!),
+      if (releasedAt != null) 'releasedAt': Timestamp.fromDate(releasedAt!),
     };
   }
 
@@ -247,8 +230,8 @@ class PeaceLetter {
       ),
       createdAt: _parseDate(data['createdAt']) ?? DateTime.now(),
       updatedAt: _parseDate(data['updatedAt']) ?? DateTime.now(),
-      submittedAt: _parseDate(data['submittedAt']),
-      moderationNote: data['moderationNote'] as String?,
+      sealedAt: _parseDate(data['sealedAt']),
+      releasedAt: _parseDate(data['releasedAt']),
     );
   }
 }

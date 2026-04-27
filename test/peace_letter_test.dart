@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:no_enemies/models/peace_letter.dart';
-import 'package:no_enemies/models/peace_offering.dart';
 
 void main() {
   group('PeaceLetter Firestore round-trip', () {
@@ -15,8 +14,7 @@ void main() {
         intent: PeaceIntent.needToLetGo,
         themes: const [PeaceTheme.anger, PeaceTheme.resentment],
         status: PeaceLetterStatus.sealed,
-        submittedAt: DateTime.utc(2026, 4, 27, 12),
-        moderationNote: 'Sealed privately.',
+        sealedAt: DateTime.utc(2026, 4, 27, 12),
       );
 
       final roundTrip = PeaceLetter.fromFirestore(letter.toFirestore());
@@ -29,9 +27,9 @@ void main() {
       expect(roundTrip.intent, PeaceIntent.needToLetGo);
       expect(roundTrip.themes, [PeaceTheme.anger, PeaceTheme.resentment]);
       expect(roundTrip.status, PeaceLetterStatus.sealed);
-      expect(roundTrip.publicText, letter.refinedText);
+      expect(roundTrip.displayText, letter.refinedText);
       expect(roundTrip.wordCount, 13);
-      expect(roundTrip.moderationNote, 'Sealed privately.');
+      expect(roundTrip.sealedAt?.toUtc(), DateTime.utc(2026, 4, 27, 12));
     });
 
     test('handles legacy/missing enum values with safe defaults', () {
@@ -51,27 +49,6 @@ void main() {
       expect(roundTrip.intent, PeaceIntent.needToBeHeard);
       expect(roundTrip.themes, [PeaceTheme.loneliness]);
       expect(roundTrip.status, PeaceLetterStatus.draft);
-    });
-  });
-
-  group('PeaceOffering Firestore round-trip', () {
-    test('preserves response mode and saved state', () {
-      final offering = PeaceOffering(
-        id: 'offering-1',
-        letterId: 'letter-1',
-        responseMode: PeaceResponseMode.quietBlessing,
-        body: 'May this become lighter in your hands.',
-        createdAt: DateTime.utc(2026, 4, 27),
-        savedToBook: true,
-      );
-
-      final roundTrip = PeaceOffering.fromFirestore(offering.toFirestore());
-
-      expect(roundTrip.id, 'offering-1');
-      expect(roundTrip.letterId, 'letter-1');
-      expect(roundTrip.responseMode, PeaceResponseMode.quietBlessing);
-      expect(roundTrip.body, offering.body);
-      expect(roundTrip.savedToBook, isTrue);
     });
   });
 }

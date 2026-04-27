@@ -8,7 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/peace_letter.dart';
-import '../../providers/peace_exchange_provider.dart';
+import '../../providers/peace_letters_provider.dart';
 import '../../theme/app_colors.dart';
 
 class WritePeaceLetterScreen extends StatefulWidget {
@@ -37,7 +37,7 @@ class _WritePeaceLetterScreenState extends State<WritePeaceLetterScreen> {
       return;
     }
     HapticFeedback.mediumImpact();
-    final provider = context.read<PeaceExchangeProvider>();
+    final provider = context.read<PeaceLettersProvider>();
     final draft = await provider.saveDraft(
       rawText: text,
       recipientArchetype: _recipient,
@@ -56,7 +56,9 @@ class _WritePeaceLetterScreenState extends State<WritePeaceLetterScreen> {
         _showSnack(provider.lastError ?? 'Could not seal this letter.');
         return;
       }
-      _showSnack('Letter sealed privately. The exchange backend comes next.');
+      _showSnack(
+        'Letter sealed privately. It is yours to keep, revisit, or release.',
+      );
     } else {
       _showSnack('Draft saved privately.');
     }
@@ -71,7 +73,7 @@ class _WritePeaceLetterScreenState extends State<WritePeaceLetterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isSaving = context.watch<PeaceExchangeProvider>().isSaving;
+    final isSaving = context.watch<PeaceLettersProvider>().isSaving;
     final bottom = MediaQuery.of(context).padding.bottom;
 
     return Scaffold(
@@ -126,7 +128,7 @@ class _WritePeaceLetterScreenState extends State<WritePeaceLetterScreen> {
                         ).animate().fadeIn(delay: 80.ms, duration: 320.ms),
                         const SizedBox(height: 10),
                         Text(
-                          'This draft stays private. The next phase will use AI to soften, redact, and prepare it for the Peace Exchange.',
+                          'This draft stays private. Next, Peace Alchemy can help soften and rewrite it for your own Book of Peace.',
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(
                                 color: AppColors.textSecondary,

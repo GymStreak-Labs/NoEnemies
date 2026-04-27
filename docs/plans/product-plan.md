@@ -107,12 +107,11 @@ Collected wisdom from your journey — insights, breakthroughs, mantras that wor
 - Book of Peace (collected wisdom)
 - Dimension ratings history
 
-### Tab 3: Crew / Peace Exchange
-- Peace Letters: anonymous, moderated letters for being witnessed and offering support
-- Write a Peace Letter, witness nightly letters, receive Peace Offerings
-- Peace Given / Peace Received stats
-- Book of Peace integration for saved offerings
-- Longer-term: small crews can layer on top once the safer Peace Exchange loop is proven
+### Tab 3: Peace Letters
+- Private letter ritual for anger, guilt, grief, envy, shame, heartbreak, resentment, and loneliness
+- Write a Peace Letter, seal it privately, revisit it, and later release/save wisdom to Book of Peace
+- AI Peace Alchemy can help soften a raw vent into a clearer letter
+- Longer-term: anonymous human witness exchange can layer on only after launch validation and safety infrastructure
 
 ### Tab 4: You
 - Character visualization (current form)
@@ -181,9 +180,9 @@ Card stack format (like Spotify Wrapped but weekly):
 - Character evolution (multiple stages)
 
 ### Phase 3: Social
-- Peace Letters / Peace Exchange as the first social mechanic
-- Anonymous, moderated human witness network — no DMs, no profiles, no public feed at MVP
-- Crews (matching, check-ins, challenges) can layer on later if the Peace Exchange safety loop works
+- Anonymous Peace Exchange / human witness network only if private Peace Letters show strong usage
+- Must be moderated and server-mediated — no DMs, no profiles, no public feed at MVP
+- Crews (matching, check-ins, challenges) can layer on later if the safety loop works
 - Shareable milestones
 - Book of Peace sharing
 
