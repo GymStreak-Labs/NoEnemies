@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import '../models/ai_context.dart';
 import '../models/check_in.dart';
 import '../models/journal_entry.dart';
+import '../models/peace_letter.dart';
 import '../models/user_profile.dart';
 
 /// Firestore data layer for a single authenticated user.
@@ -17,6 +18,7 @@ import '../models/user_profile.dart';
 ///   users/{uid}/profile/main          — single profile doc
 ///   users/{uid}/checkIns/{yyyy-MM-dd} — merged morning + evening per day
 ///   users/{uid}/journal/{entryId}     — one doc per journal entry
+///   users/{uid}/peaceLetters/{id}     — private Peace Letter drafts/status
 ///   users/{uid}/ai/context            — rolling AI memory (reserved, Phase C)
 ///   users/{uid}/credits/voiceMinutes  — reserved, voice feature
 ///
@@ -27,8 +29,8 @@ class FirestoreRepository {
     required this.uid,
     FirebaseFirestore? firestore,
     FirebaseStorage? storage,
-  })  : _db = firestore ?? FirebaseFirestore.instance,
-        _storage = storage ?? FirebaseStorage.instance;
+  }) : _db = firestore ?? FirebaseFirestore.instance,
+       _storage = storage ?? FirebaseStorage.instance;
 
   final String uid;
   final FirebaseFirestore _db;
@@ -51,6 +53,9 @@ class FirestoreRepository {
 
   CollectionReference<Map<String, dynamic>> get _journalCol =>
       _userDoc.collection('journal');
+
+  CollectionReference<Map<String, dynamic>> get _peaceLettersCol =>
+      _userDoc.collection('peaceLetters');
 
   DocumentReference<Map<String, dynamic>> get _aiContextDoc =>
       _userDoc.collection('ai').doc('context');
@@ -137,12 +142,12 @@ class FirestoreRepository {
         .orderBy('dateTs', descending: true)
         .snapshots()
         .map((query) {
-      final out = <CheckIn>[];
-      for (final doc in query.docs) {
-        out.addAll(_checkInsFromDoc(doc));
-      }
-      return out;
-    });
+          final out = <CheckIn>[];
+          for (final doc in query.docs) {
+            out.addAll(_checkInsFromDoc(doc));
+          }
+          return out;
+        });
   }
 
   List<CheckIn> _checkInsFromDoc(DocumentSnapshot<Map<String, dynamic>> snap) {
@@ -154,19 +159,23 @@ class FirestoreRepository {
 
     final morning = data['morning'];
     if (morning is Map<String, dynamic>) {
-      out.add(CheckIn.fromFirestoreHalf(
-        morning,
-        type: CheckInType.morning,
-        fallbackDate: fallbackDate,
-      ));
+      out.add(
+        CheckIn.fromFirestoreHalf(
+          morning,
+          type: CheckInType.morning,
+          fallbackDate: fallbackDate,
+        ),
+      );
     }
     final evening = data['evening'];
     if (evening is Map<String, dynamic>) {
-      out.add(CheckIn.fromFirestoreHalf(
-        evening,
-        type: CheckInType.evening,
-        fallbackDate: fallbackDate,
-      ));
+      out.add(
+        CheckIn.fromFirestoreHalf(
+          evening,
+          type: CheckInType.evening,
+          fallbackDate: fallbackDate,
+        ),
+      );
     }
     return out;
   }
@@ -182,9 +191,7 @@ class FirestoreRepository {
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .get();
-    return query.docs
-        .map((d) => JournalEntry.fromFirestore(d.data()))
-        .toList();
+    return query.docs.map((d) => JournalEntry.fromFirestore(d.data())).toList();
   }
 
   /// Live journal stream, most-recent first. Limited to [limit] entries so
@@ -195,8 +202,11 @@ class FirestoreRepository {
         .orderBy('createdAt', descending: true)
         .limit(limit)
         .snapshots()
-        .map((query) =>
-            query.docs.map((d) => JournalEntry.fromFirestore(d.data())).toList());
+        .map(
+          (query) => query.docs
+              .map((d) => JournalEntry.fromFirestore(d.data()))
+              .toList(),
+        );
   }
 
   Future<void> saveJournalEntry(JournalEntry entry) async {
@@ -207,6 +217,44 @@ class FirestoreRepository {
 
   Future<void> deleteJournalEntry(String id) async {
     await _journalCol.doc(id).delete();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Peace Letters — private per-user drafts/status only.
+  //
+  // The anonymous exchange itself must be server-mediated (Cloud Functions /
+  // Admin SDK) so users never get direct client access to a shared pool.
+  // These helpers intentionally only touch `users/{uid}/peaceLetters`.
+  // ---------------------------------------------------------------------------
+
+  Stream<List<PeaceLetter>> streamPeaceLetters({int limit = 25}) {
+    return _peaceLettersCol
+        .orderBy('updatedAt', descending: true)
+        .limit(limit)
+        .snapshots()
+        .map(
+          (query) => query.docs
+              .map((d) => PeaceLetter.fromFirestore(d.data()))
+              .toList(),
+        );
+  }
+
+  Future<List<PeaceLetter>> listPeaceLetters({int limit = 25}) async {
+    final query = await _peaceLettersCol
+        .orderBy('updatedAt', descending: true)
+        .limit(limit)
+        .get();
+    return query.docs.map((d) => PeaceLetter.fromFirestore(d.data())).toList();
+  }
+
+  Future<void> savePeaceLetter(PeaceLetter letter) async {
+    await _peaceLettersCol
+        .doc(letter.id)
+        .set(letter.toFirestore(), SetOptions(merge: true));
+  }
+
+  Future<void> deletePeaceLetter(String id) async {
+    await _peaceLettersCol.doc(id).delete();
   }
 
   // ---------------------------------------------------------------------------
@@ -225,10 +273,7 @@ class FirestoreRepository {
   Future<String> uploadJournalAudio(String entryId, File audioFile) async {
     final path = audioStoragePath(entryId);
     final ref = _storage.ref(path);
-    await ref.putFile(
-      audioFile,
-      SettableMetadata(contentType: 'audio/wav'),
-    );
+    await ref.putFile(audioFile, SettableMetadata(contentType: 'audio/wav'));
     return path;
   }
 
@@ -294,6 +339,9 @@ class FirestoreRepository {
   /// - `users/{uid}/profile/main`
   /// - `users/{uid}/checkIns/*`
   /// - `users/{uid}/journal/*` (+ matching audio blobs in Storage)
+  /// - `users/{uid}/peaceLetters/*`
+  /// - `users/{uid}/peaceInbox/*` / `peaceOfferings*` / `peaceStats/*`
+  ///   (reserved for Peace Exchange server-mediated delivery)
   /// - `users/{uid}/ai/context`
   /// - `users/{uid}/credits/*` (reserved for voice mentor, may not exist)
   /// - `users/{uid}/audio/journal/*` in Firebase Storage (catch-all for any
@@ -306,7 +354,9 @@ class FirestoreRepository {
   Future<void> deleteAllUserData() async {
     // ---- Firestore: collect all sub-doc ids per sub-collection, then batch
     // delete in chunks. Batches are capped at 500 writes by Firestore.
-    Future<void> wipeCollection(CollectionReference<Map<String, dynamic>> col) async {
+    Future<void> wipeCollection(
+      CollectionReference<Map<String, dynamic>> col,
+    ) async {
       try {
         final snap = await col.get();
         const chunk = 400;
@@ -318,7 +368,9 @@ class FirestoreRepository {
           await batch.commit();
         }
       } catch (e, st) {
-        debugPrint('[FirestoreRepository] wipeCollection ${col.path} failed: $e\n$st');
+        debugPrint(
+          '[FirestoreRepository] wipeCollection ${col.path} failed: $e\n$st',
+        );
       }
     }
 
@@ -338,6 +390,11 @@ class FirestoreRepository {
     // Wipe sub-collections first, then top-level docs, then the user doc.
     await wipeCollection(_checkInsCol);
     await wipeCollection(_journalCol);
+    await wipeCollection(_peaceLettersCol);
+    await wipeCollection(_userDoc.collection('peaceInbox'));
+    await wipeCollection(_userDoc.collection('peaceOfferingsReceived'));
+    await wipeCollection(_userDoc.collection('peaceOfferingsSent'));
+    await wipeCollection(_userDoc.collection('peaceStats'));
     await wipeCollection(_userDoc.collection('profile'));
     await wipeCollection(_userDoc.collection('ai'));
     await wipeCollection(_userDoc.collection('credits'));

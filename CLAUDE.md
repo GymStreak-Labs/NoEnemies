@@ -46,6 +46,7 @@ users/{uid}/
 ├─ profile/main                (single doc — UserProfile)
 ├─ checkIns/{yyyy-MM-dd}       (merged morning + evening per day)
 ├─ journal/{entryId}           (one doc per journal entry)
+├─ peaceLetters/{letterId}     (private Peace Letter drafts / sealed status)
 ├─ ai/context                  (reserved for Phase 1C — rolling AI memory)
 └─ credits/voiceMinutes        (reserved — voice feature)
 ```
@@ -92,6 +93,7 @@ Example `journal/{entryId}`:
 | `UserProfile` | Firestore (`users/{uid}/profile/main`) | User identity + stats, follows user across devices |
 | Check-ins | Firestore (`users/{uid}/checkIns/{yyyy-MM-dd}`) | User content |
 | Journal entries | Firestore (`users/{uid}/journal/{entryId}`) | User content |
+| Peace Letter drafts | Firestore (`users/{uid}/peaceLetters/{letterId}`) | Private user content; global anonymous exchange is server-mediated later |
 | `intro_cinematic_seen` | SharedPreferences | Per-install UX flag — not tied to a user |
 | `onboarding_complete` | SharedPreferences | Pre-auth router gate — needs to work before sign-in |
 | `last_seen_title_index` | SharedPreferences | Per-device UX polish (skip cinematic on replay) |
@@ -146,6 +148,8 @@ NoEnemies/
 │   │   ├── check_in.dart          # Morning/evening check-in model
 │   │   ├── current_emotion.dart   # 3-bucket emotion (joyful/calm/troubled) driving the character aura
 │   │   ├── journal_entry.dart     # Journal entry model
+│   │   ├── peace_letter.dart      # Peace Letters draft/intent/theme/status model (Phase 3 social MVP)
+│   │   ├── peace_offering.dart    # Peace Offering reply model (server-delivered in later phase)
 │   │   └── ai_context.dart        # Rolling AI memory summary (Phase 1C)
 │   ├── services/
 │   │   ├── storage_service.dart         # SharedPreferences — device-local flags only post-1B
@@ -157,6 +161,7 @@ NoEnemies/
 │   │   └── voice_recording_service.dart # Press-and-hold WAV recorder + amplitude stream (Phase 2)
 │   ├── providers/
 │   │   ├── user_provider.dart     # User state, check-ins, journal
+│   │   ├── peace_exchange_provider.dart # Private Peace Letter drafts + sealed letters
 │   │   └── journey_provider.dart  # Peace missions, AI prompts
 │   ├── router/
 │   │   └── app_router.dart        # go_router config, all routes, fade transitions
@@ -181,7 +186,10 @@ NoEnemies/
 │   │   │   ├── morning_check_in_screen.dart
 │   │   │   └── evening_reflection_screen.dart
 │   │   ├── crew/
-│   │   │   └── crew_tab.dart            # Coming Soon placeholder
+│   │   │   └── crew_tab.dart            # Peace Exchange dashboard (Phase A/B)
+│   │   ├── peace/
+│   │   │   ├── write_peace_letter_screen.dart
+│   │   │   └── peace_letter_detail_screen.dart
 │   │   ├── you/
 │   │   │   └── you_tab.dart             # Profile with animated glow + particles
 │   │   └── journal/
@@ -353,12 +361,14 @@ NoEnemies is premium-only. RevenueCat is configured in [`lib/services/subscripti
 - **Character Glow:** Animated pulsing radial gradient behind character avatar on You tab and conflict reveal.
 - **Section Labels:** Uppercase, letter-spacing 2-4, small text for category headers.
 - **Journal (The Tome):** Entries are grouped by "Book of Peace" (bookmarked — gold border, amber halo, ember bookmark rune, golden serif title) vs regular entries (neutral glass card). Header uses `THE TOME` kicker + gold ShaderMask serif title. Entry screen has amber-on-black cursor, Cormorant Garamond title field, Inter body with 1.75 line-height, live word count footer, and an animated "Keep / Kept" bookmark pill that glows gold when active. Auto-saves on back/nav; delete uses Norse-tinged copy ("The ink cannot be restored once washed away").
+- **Peace Exchange / Peace Letters (Crew tab):** Phase A/B replaces the old Crew placeholder with a Peace Exchange dashboard. Users can create private Peace Letter drafts under `users/{uid}/peaceLetters`, choose recipient archetype / intent / emotional themes, and "seal privately" for UX testing. The real anonymous exchange must remain server-mediated (Cloud Functions/Admin SDK) before any user-to-user delivery — no client-readable global pool, no DMs, no profiles, no public feed.
 
 ## Gotchas
 
 - Hard paywall: no free tier. Close button on paywall routes to `/auth`, but signed-in non-premium users are routed back to `/paywall` until RevenueCat's `premium` entitlement is active.
 - No monthly plan by design — force special annual / annual commitment or weekly trial.
 - All user-scoped data (profile, check-ins, journal) lives in Firestore under `users/{uid}/...`. SharedPreferences only holds device-local flags (onboarding complete, intro seen, last-seen title index, legacy migration guard). See the "Firestore Schema" section above.
+- Peace Letters Phase A/B only writes private drafts/status to `users/{uid}/peaceLetters`. Do **not** create a client-writable shared `peacePool` or client-readable anonymous exchange. The live user-to-user exchange requires Cloud Functions/Admin SDK for moderation, assignment, identity protection, App Check, rate limits, and premium entitlement checks.
 - `UserProvider` holds a nullable `FirestoreRepository`. It's attached by the auth state listener in `main.dart` on sign-in and detached on sign-out. Existing screens read via the same public getters (`profile`, `checkIns`, `journalEntries`) — the swap is transparent to the UI.
 - `createProfile(...)` is kept as a back-compat wrapper over `buildOnboardingProfile(...)`. It no longer writes to SharedPreferences — the profile is held in memory until sign-in, then the auth listener persists it via `repo.saveProfile(seed.copyWith(id: uid))`. The uuid `id` generated during onboarding is REPLACED by the Firebase `uid` on first persist.
 - Firestore offline persistence is enabled in `main.dart` (`Settings(persistenceEnabled: true, cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED)`) so the UX doesn't regress vs SharedPrefs when the user is offline.

@@ -23,6 +23,8 @@ import '../screens/you/you_tab.dart';
 import '../screens/journal/journal_screen.dart';
 import '../screens/journal/journal_entry_screen.dart';
 import '../screens/journal/voice_journal_entry_screen.dart';
+import '../screens/peace/peace_letter_detail_screen.dart';
+import '../screens/peace/write_peace_letter_screen.dart';
 import '../services/ai_mentor_service.dart';
 import '../services/storage_service.dart';
 import '../services/subscription_service.dart';
@@ -234,6 +236,17 @@ class AppRouter {
           builder: (context, state) {
             final id = state.pathParameters['id']!;
             return JournalEntryScreen(entryId: id);
+          },
+        ),
+        GoRoute(
+          path: '/peace/write',
+          builder: (context, state) => const WritePeaceLetterScreen(),
+        ),
+        GoRoute(
+          path: '/peace/letter/:id',
+          builder: (context, state) {
+            final id = state.pathParameters['id']!;
+            return PeaceLetterDetailScreen(letterId: id);
           },
         ),
       ],
