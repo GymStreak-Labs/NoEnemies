@@ -72,6 +72,15 @@ class _LetterDetail extends StatelessWidget {
 
   final PeaceLetter letter;
 
+  void _returnToPeaceLetters(BuildContext context) {
+    final router = GoRouter.of(context);
+    if (router.canPop()) {
+      router.pop();
+    } else {
+      router.go('/crew');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<PeaceLettersProvider>();
@@ -100,7 +109,7 @@ class _LetterDetail extends StatelessWidget {
               child: Row(
                 children: [
                   IconButton(
-                    onPressed: () => context.pop(),
+                    onPressed: () => _returnToPeaceLetters(context),
                     icon: const Icon(
                       Icons.arrow_back_rounded,
                       color: AppColors.textSecondary,
