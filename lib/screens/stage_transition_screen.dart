@@ -1,7 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/user_profile.dart';
 import '../theme/app_colors.dart';
@@ -183,8 +182,9 @@ class _StageTransitionScreenState extends State<StageTransitionScreen>
                       radius: 0.6 + burstOpacity * 0.8,
                       colors: [
                         Colors.white.withValues(alpha: burstOpacity * 0.95),
-                        _colorFor(widget.newStage)
-                            .withValues(alpha: burstOpacity * 0.4),
+                        _colorFor(
+                          widget.newStage,
+                        ).withValues(alpha: burstOpacity * 0.4),
                         Colors.transparent,
                       ],
                     ),
@@ -231,8 +231,11 @@ class _StageTransitionScreenState extends State<StageTransitionScreen>
                               gradient: RadialGradient(
                                 colors: [
                                   _colorFor(widget.newStage).withValues(
-                                      alpha:
-                                          0.18 * newCharOpacity * (0.6 + _pulse.value * 0.4)),
+                                    alpha:
+                                        0.18 *
+                                        newCharOpacity *
+                                        (0.6 + _pulse.value * 0.4),
+                                  ),
                                   Colors.transparent,
                                 ],
                               ),
@@ -303,8 +306,11 @@ class _StageTransitionScreenState extends State<StageTransitionScreen>
                         shaderCallback: (bounds) => LinearGradient(
                           colors: [
                             _colorFor(widget.newStage),
-                            Color.lerp(_colorFor(widget.newStage),
-                                Colors.white, 0.4)!,
+                            Color.lerp(
+                              _colorFor(widget.newStage),
+                              Colors.white,
+                              0.4,
+                            )!,
                           ],
                         ).createShader(bounds),
                         child: Text(
@@ -316,8 +322,9 @@ class _StageTransitionScreenState extends State<StageTransitionScreen>
                             height: 1.1,
                             shadows: [
                               Shadow(
-                                color: _colorFor(widget.newStage)
-                                    .withValues(alpha: 0.5),
+                                color: _colorFor(
+                                  widget.newStage,
+                                ).withValues(alpha: 0.5),
                                 blurRadius: 24,
                               ),
                             ],
@@ -349,20 +356,22 @@ class _StageTransitionScreenState extends State<StageTransitionScreen>
                         onTap: ctaOpacity >= 1.0 ? widget.onContinue : null,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 36, vertical: 14),
+                            horizontal: 36,
+                            vertical: 14,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(30),
                             border: Border.all(
-                              color: _colorFor(widget.newStage)
-                                  .withValues(alpha: 0.5),
+                              color: _colorFor(
+                                widget.newStage,
+                              ).withValues(alpha: 0.5),
                             ),
                           ),
                           child: ClipRRect(
                             borderRadius: BorderRadius.circular(30),
                             child: BackdropFilter(
-                              filter:
-                                  ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                               child: Text(
                                 'Continue',
                                 style: TextStyle(
@@ -390,7 +399,9 @@ class _StageTransitionScreenState extends State<StageTransitionScreen>
                     onTap: widget.onContinue,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 6),
+                        horizontal: 14,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.05),
                         borderRadius: BorderRadius.circular(20),
@@ -415,7 +426,13 @@ class _StageTransitionScreenState extends State<StageTransitionScreen>
   }
 
   /// Smooth opacity curve: 0 before [start], 1 between [riseEnd]→[fallStart], 0 after [end].
-  double _curve(double t, double start, double riseEnd, double fallStart, double end) {
+  double _curve(
+    double t,
+    double start,
+    double riseEnd,
+    double fallStart,
+    double end,
+  ) {
     if (t <= start) return 0;
     if (t < riseEnd) {
       final p = (t - start) / (riseEnd - start);

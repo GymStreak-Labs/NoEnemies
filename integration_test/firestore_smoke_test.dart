@@ -10,8 +10,6 @@
 // signs out, signs back in, and verifies the data is still there. Does NOT
 // delete the test user — cleanup is manual (see report).
 
-import 'dart:async';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -113,8 +111,10 @@ void main() {
     expect(loadedProfile.primaryConflict, ConflictType.selfHatred);
     expect(loadedProfile.displayName, 'Smoke Tester');
     expect(loadedProfile.personalIntention, 'Phase 1B round-trip.');
-    expect(loadedProfile.previousAttempts,
-        containsAll(<String>['journaling', 'therapy']));
+    expect(
+      loadedProfile.previousAttempts,
+      containsAll(<String>['journaling', 'therapy']),
+    );
     expect(loadedProfile.quizAnswers.length, 10);
 
     final loadedCheckIns = await repo.loadCheckIn(now);
@@ -125,28 +125,27 @@ void main() {
 
     final loadedJournal = await repo.listJournalEntries();
     expect(loadedJournal, isNotEmpty);
-    final match =
-        loadedJournal.firstWhere((j) => j.id == 'journal-$ts');
+    final match = loadedJournal.firstWhere((j) => j.id == 'journal-$ts');
     expect(match.title, 'Smoke entry');
     expect(match.isBookmarked, isTrue);
     expect(match.wordCount, greaterThan(0));
 
     // ---- Stream sanity check (first event has data) ----
     final profileStreamFirst = await repo.streamProfile().firstWhere(
-          (p) => p != null,
-          orElse: () => null,
-        );
+      (p) => p != null,
+      orElse: () => null,
+    );
     expect(profileStreamFirst, isNotNull);
     expect(profileStreamFirst!.displayName, 'Smoke Tester');
 
-    final journalStreamFirst = await repo
-        .streamJournalEntries()
-        .firstWhere((l) => l.any((j) => j.id == 'journal-$ts'));
+    final journalStreamFirst = await repo.streamJournalEntries().firstWhere(
+      (l) => l.any((j) => j.id == 'journal-$ts'),
+    );
     expect(journalStreamFirst, isNotEmpty);
 
-    final checkInsStreamFirst = await repo
-        .streamRecentCheckIns()
-        .firstWhere((l) => l.any((c) => c.id == 'morning-$ts'));
+    final checkInsStreamFirst = await repo.streamRecentCheckIns().firstWhere(
+      (l) => l.any((c) => c.id == 'morning-$ts'),
+    );
     expect(checkInsStreamFirst, isNotEmpty);
 
     // ---- Sign out, sign back in, verify data still there ----
@@ -168,10 +167,7 @@ void main() {
     expect(reloadedJournal.any((j) => j.id == 'journal-$ts'), isTrue);
 
     final reloadedCheckIns = await repo2.loadCheckIn(now);
-    expect(
-      reloadedCheckIns.any((c) => c.id == 'morning-$ts'),
-      isTrue,
-    );
+    expect(reloadedCheckIns.any((c) => c.id == 'morning-$ts'), isTrue);
 
     // NOTE: we intentionally leave the user + docs in place. Cleanup is
     // manual — see the smoke-test report for the uid/email to delete.

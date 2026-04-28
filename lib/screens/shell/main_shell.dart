@@ -10,8 +10,18 @@ class MainShell extends StatelessWidget {
 
   static const _tabs = <_TabSpec>[
     _TabSpec('/journey', Icons.explore_outlined, Icons.explore, 'Journey'),
-    _TabSpec('/reflect', Icons.auto_stories_outlined, Icons.auto_stories, 'Reflect'),
-    _TabSpec('/crew', Icons.groups_outlined, Icons.groups, 'Crew'),
+    _TabSpec(
+      '/reflect',
+      Icons.auto_stories_outlined,
+      Icons.auto_stories,
+      'Reflect',
+    ),
+    _TabSpec(
+      '/crew',
+      Icons.mark_email_unread_outlined,
+      Icons.mark_email_read,
+      'Peace',
+    ),
     _TabSpec('/you', Icons.person_outline, Icons.person, 'You'),
   ];
 
@@ -192,7 +202,9 @@ class _TabItem extends StatelessWidget {
                         Transform.scale(
                           scale: 1.0 + (0.08 * t),
                           child: _TabIcon(
-                            iconData: isActive ? tab.iconFilled : tab.iconOutlined,
+                            iconData: isActive
+                                ? tab.iconFilled
+                                : tab.iconOutlined,
                             activeProgress: t,
                           ),
                         ),
@@ -241,10 +253,7 @@ class _TabItem extends StatelessWidget {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(2),
                       gradient: const LinearGradient(
-                        colors: [
-                          Color(0xFFE8C87A),
-                          Color(0xFFD4A853),
-                        ],
+                        colors: [Color(0xFFE8C87A), Color(0xFFD4A853)],
                       ),
                       boxShadow: [
                         BoxShadow(
@@ -269,10 +278,7 @@ class _TabIcon extends StatelessWidget {
   final IconData iconData;
   final double activeProgress;
 
-  const _TabIcon({
-    required this.iconData,
-    required this.activeProgress,
-  });
+  const _TabIcon({required this.iconData, required this.activeProgress});
 
   @override
   Widget build(BuildContext context) {

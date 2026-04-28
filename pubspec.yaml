@@ -2,7 +2,7 @@ name: no_enemies
 description: "You've been fighting long enough. A personal peace and conflict resolution journey."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: ^3.11.1

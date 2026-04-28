@@ -72,21 +72,21 @@ class TodayCard extends StatelessWidget {
                     Text(
                       title,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: isCompleted
-                                ? AppColors.textSecondary
-                                : AppColors.textPrimary,
-                            fontWeight: FontWeight.w600,
-                            decoration: isCompleted
-                                ? TextDecoration.lineThrough
-                                : null,
-                          ),
+                        color: isCompleted
+                            ? AppColors.textSecondary
+                            : AppColors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                        decoration: isCompleted
+                            ? TextDecoration.lineThrough
+                            : null,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
+                        color: AppColors.textSecondary,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -110,12 +110,17 @@ class TodayCard extends StatelessWidget {
       child: heroTag != null
           ? Hero(
               tag: heroTag!,
-              flightShuttleBuilder: (_, __, ___, ____, _____) => card,
+              flightShuttleBuilder:
+                  (context, animation, direction, fromContext, toContext) =>
+                      card,
               child: Material(type: MaterialType.transparency, child: card),
             )
           : card,
     );
 
-    return wrapped.animate().fadeIn(duration: 400.ms).slideX(begin: 0.03, end: 0);
+    return wrapped
+        .animate()
+        .fadeIn(duration: 400.ms)
+        .slideX(begin: 0.03, end: 0);
   }
 }

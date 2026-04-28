@@ -131,7 +131,9 @@ class _WeeklyInsightsScreenState extends State<WeeklyInsightsScreen> {
     final days = profile.totalDaysOfPeace;
     if (days < 7) return '${7 - days} more peaceful days unlock The Wanderer.';
     if (days < 30) return '${30 - days} more peaceful days unlock The Seeker.';
-    if (days < 90) return '${90 - days} more peaceful days unlock The Peacemaker.';
+    if (days < 90) {
+      return '${90 - days} more peaceful days unlock The Peacemaker.';
+    }
     return 'You\'ve become The Peacemaker. Stay here.';
   }
 
@@ -237,22 +239,30 @@ class _WeeklyInsightsScreenState extends State<WeeklyInsightsScreen> {
                 // Top bar
                 Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   child: Row(
                     children: [
                       GestureDetector(
-                        onTap: () => Navigator.maybeOf(context)?.maybePop()
-                            .then((didPop) {
-                          if (!didPop) GoRouter.of(context).go('/journey');
-                        }),
+                        onTap: () {
+                          final navigator = Navigator.maybeOf(context);
+                          final router = GoRouter.of(context);
+                          navigator?.maybePop().then((didPop) {
+                            if (!didPop) router.go('/journey');
+                          });
+                        },
                         child: Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.06),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Icon(Icons.close_rounded,
-                              color: Colors.white, size: 20),
+                          child: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
                         ),
                       ),
                       const Spacer(),
@@ -364,9 +374,7 @@ class _InsightCardView extends StatelessWidget {
                   ],
                 ),
                 borderRadius: BorderRadius.circular(28),
-                border: Border.all(
-                  color: card.color.withValues(alpha: 0.35),
-                ),
+                border: Border.all(color: card.color.withValues(alpha: 0.35)),
                 boxShadow: [
                   BoxShadow(
                     color: card.color.withValues(alpha: 0.12),
@@ -382,25 +390,26 @@ class _InsightCardView extends StatelessWidget {
                 children: [
                   // Big icon badge
                   Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: card.color.withValues(alpha: 0.2),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: card.color.withValues(alpha: 0.4),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Icon(card.icon, color: card.color, size: 40),
-                  )
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: card.color.withValues(alpha: 0.2),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: card.color.withValues(alpha: 0.4),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Icon(card.icon, color: card.color, size: 40),
+                      )
                       .animate()
                       .fadeIn(duration: 400.ms)
                       .scale(
-                          begin: const Offset(0.7, 0.7),
-                          end: const Offset(1, 1),
-                          duration: 500.ms,
-                          curve: Curves.easeOutBack),
+                        begin: const Offset(0.7, 0.7),
+                        end: const Offset(1, 1),
+                        duration: 500.ms,
+                        curve: Curves.easeOutBack,
+                      ),
 
                   const SizedBox(height: 24),
 
@@ -418,22 +427,22 @@ class _InsightCardView extends StatelessWidget {
 
                   if (card.bigStat != null)
                     ShaderMask(
-                      shaderCallback: (bounds) => LinearGradient(
-                        colors: [
-                          card.color,
-                          Color.lerp(card.color, Colors.white, 0.4)!,
-                        ],
-                      ).createShader(bounds),
-                      child: Text(
-                        card.bigStat!,
-                        style: GoogleFonts.cormorantGaramond(
-                          fontSize: 64,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                          height: 1.0,
-                        ),
-                      ),
-                    )
+                          shaderCallback: (bounds) => LinearGradient(
+                            colors: [
+                              card.color,
+                              Color.lerp(card.color, Colors.white, 0.4)!,
+                            ],
+                          ).createShader(bounds),
+                          child: Text(
+                            card.bigStat!,
+                            style: GoogleFonts.cormorantGaramond(
+                              fontSize: 64,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white,
+                              height: 1.0,
+                            ),
+                          ),
+                        )
                         .animate()
                         .fadeIn(delay: 350.ms, duration: 500.ms)
                         .slideY(begin: 0.1, end: 0)
@@ -491,7 +500,9 @@ class _InsightCardView extends StatelessWidget {
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 28, vertical: 12),
+                          horizontal: 28,
+                          vertical: 12,
+                        ),
                         decoration: BoxDecoration(
                           color: card.color.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(30),
@@ -545,10 +556,9 @@ class _RatioBar extends StatelessWidget {
               widthFactor: v,
               child: Container(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [
-                    color.withValues(alpha: 0.5),
-                    color,
-                  ]),
+                  gradient: LinearGradient(
+                    colors: [color.withValues(alpha: 0.5), color],
+                  ),
                   borderRadius: BorderRadius.circular(5),
                 ),
               ),
